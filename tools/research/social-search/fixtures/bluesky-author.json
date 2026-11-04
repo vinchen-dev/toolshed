@@ -1,0 +1,48 @@
+{
+ "feed": [
+  {
+   "post": {
+    "uri": "at://did:plc:eon2iu7v3x2ukgxkqaf7e5np/app.bsky.feed.post/3myaysp7gmt2o",
+    "cid": "bafyreihlthrc6olplhxz3jvfuod5cmshaqgsfxqde57dr5hlze7n2tnz5i",
+    "author": {
+     "did": "did:plc:eon2iu7v3x2ukgxkqaf7e5np",
+     "handle": "safety.bsky.app",
+     "displayName": "Bluesky Safety"
+    },
+    "record": {
+     "$type": "app.bsky.feed.post",
+     "createdAt": "2026-10-19T20:52:31.118Z",
+     "text": "To make a plan to vote, visit the website of Democracy Works, a nonpartisan nonprofit that helps voters find accurate information about their polling place:"
+    },
+    "bookmarkCount": 11,
+    "replyCount": 5,
+    "repostCount": 102,
+    "likeCount": 457,
+    "quoteCount": 2,
+    "indexedAt": "2026-10-19T20:52:33.064Z"
+   }
+  },
+  {
+   "post": {
+    "uri": "at://did:plc:gwo3gkexjhfpujb5pxefirgg/app.bsky.feed.post/3mzg5hxs5ns2u",
+    "cid": "bafyreia2wrhqschqsf2jgse67w3fqprngeledas6gfkx4qnglgxvtpdixe",
+    "author": {
+     "did": "did:plc:gwo3gkexjhfpujb5pxefirgg",
+     "handle": "mccanner.bsky.social",
+     "displayName": "erin mccann"
+    },
+    "record": {
+     "$type": "app.bsky.feed.post",
+     "createdAt": "2026-11-03T15:24:30.390Z",
+     "text": "When you ride the ferry on election day"
+    },
+    "bookmarkCount": 37,
+    "replyCount": 17,
+    "repostCount": 223,
+    "likeCount": 2980,
+    "quoteCount": 18,
+    "indexedAt": "2026-11-03T15:24:34.080Z"
+   }
+  }
+ ]
+}

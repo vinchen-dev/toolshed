@@ -1,0 +1,211 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-10-27T00:00:00+08:00",
+  "title": "Design System: tool-shed dashboard",
+  "source": {
+    "stylesheet": "src/shed/ui.py:_STYLE (inline, served per page)",
+    "secondSurface": "tools/bdo-incidents/view.py",
+    "captures": ".impeccable/review/*.png",
+    "note": "Tokens are CSS custom properties on :root in an inline <style>; component CSS below is resolved to light-theme literals because the panel's shadow DOM has no access to that page's :root. Dark values are listed in colorMeta.*.dark."
+  },
+  "extensions": {
+    "colorMeta": {
+      "accent": { "role": "primary", "displayName": "Indigo", "canonical": "#5e6ad2", "dark": "#7c86ff", "tonalRamp": ["oklch(22% 0.08 277)", "oklch(32% 0.13 277)", "oklch(42% 0.16 277)", "oklch(52% 0.17 277)", "oklch(62% 0.15 277)", "oklch(74% 0.11 277)", "oklch(86% 0.06 277)", "oklch(95% 0.02 277)"] },
+      "accent-strong": { "role": "primary", "displayName": "Indigo (pressed/hover)", "canonical": "#4f5bc4", "dark": "#929aff" },
+      "accent-wash": { "role": "primary", "displayName": "Indigo wash (declared, unused)", "canonical": "#eef0fb", "dark": "#7c86ff1f" },
+      "on-accent": { "role": "primary", "displayName": "On indigo", "canonical": "#ffffff", "dark": "#0b0b14" },
+      "ground": { "role": "neutral", "displayName": "Ground", "canonical": "#fafafa", "dark": "#09090b", "tonalRamp": ["oklch(15% 0.004 286)", "oklch(25% 0.004 286)", "oklch(38% 0.004 286)", "oklch(52% 0.004 286)", "oklch(66% 0.004 286)", "oklch(80% 0.004 286)", "oklch(91% 0.003 286)", "oklch(98% 0 0)"] },
+      "surface": { "role": "neutral", "displayName": "Surface", "canonical": "#ffffff", "dark": "#121214" },
+      "surface-sunken": { "role": "neutral", "displayName": "Surface sunken", "canonical": "#f4f4f5", "dark": "#1c1c1f" },
+      "ink": { "role": "neutral", "displayName": "Ink", "canonical": "#18181b", "dark": "#ededf0", "tonalRamp": ["oklch(15% 0.005 286)", "oklch(24% 0.005 286)", "oklch(36% 0.006 286)", "oklch(50% 0.006 286)", "oklch(64% 0.006 286)", "oklch(78% 0.005 286)", "oklch(90% 0.004 286)", "oklch(95% 0.003 286)"] },
+      "ink-muted": { "role": "neutral", "displayName": "Ink muted", "canonical": "#6b6b76", "dark": "#8b8b93" },
+      "hairline": { "role": "neutral", "displayName": "Hairline", "canonical": "#e4e4e7", "dark": "#232326" },
+      "hairline-strong": { "role": "neutral", "displayName": "Hairline strong", "canonical": "#d4d4d8", "dark": "#2e2e32" },
+      "ok": { "role": "state", "displayName": "Ok green", "canonical": "#15803d", "dark": "#4ade80", "tonalRamp": ["oklch(20% 0.06 150)", "oklch(30% 0.09 150)", "oklch(40% 0.12 150)", "oklch(52% 0.15 150)", "oklch(64% 0.17 150)", "oklch(76% 0.15 150)", "oklch(88% 0.09 150)", "oklch(95% 0.04 150)"] },
+      "ok-wash": { "role": "state", "displayName": "Ok wash", "canonical": "#dcfce7", "dark": "#14532d55" },
+      "fail": { "role": "state", "displayName": "Fail red", "canonical": "#b91c1c", "dark": "#f87171", "tonalRamp": ["oklch(20% 0.08 25)", "oklch(30% 0.12 25)", "oklch(42% 0.17 25)", "oklch(52% 0.2 25)", "oklch(62% 0.2 25)", "oklch(74% 0.14 25)", "oklch(87% 0.07 25)", "oklch(95% 0.03 25)"] },
+      "fail-wash": { "role": "state", "displayName": "Fail wash", "canonical": "#fee2e2", "dark": "#7f1d1d55" },
+      "warn": { "role": "state", "displayName": "Warn amber (means running)", "canonical": "#b45309", "dark": "#fbbf24", "tonalRamp": ["oklch(22% 0.06 60)", "oklch(32% 0.09 60)", "oklch(44% 0.12 60)", "oklch(55% 0.14 60)", "oklch(68% 0.15 70)", "oklch(80% 0.14 80)", "oklch(90% 0.09 85)", "oklch(96% 0.04 90)"] },
+      "warn-wash": { "role": "state", "displayName": "Warn wash", "canonical": "#fef3c7", "dark": "#78350f55" },
+      "brand-roof": { "role": "brand", "displayName": "House roof", "canonical": "#b45309" },
+      "brand-door": { "role": "brand", "displayName": "House door", "canonical": "#fde68a" },
+      "brand-outline": { "role": "brand", "displayName": "House outline", "canonical": "#78350f" }
+    },
+    "typographyMeta": {
+      "headline": { "displayName": "Headline", "purpose": "Page h1 only; carries a 13px/500 muted small." },
+      "title": { "displayName": "Title", "purpose": "h2 section heads, card names, nav brand." },
+      "subtitle": { "displayName": "Subtitle", "purpose": "h3: env names, top-level result keys." },
+      "minor": { "displayName": "Minor", "purpose": "h4, muted: nested result keys, args, examples." },
+      "body": { "displayName": "Body", "purpose": "Default text; nav right cluster and card footers drop to 12.5px." },
+      "table": { "displayName": "Table", "purpose": "table.data cells and the health strip; .key cells at 500." },
+      "stat": { "displayName": "Stat", "purpose": "The number in a stat tile, over a 12px muted caption." },
+      "label": { "displayName": "Label", "purpose": "Table headers: 12px/500 muted, no uppercase." },
+      "pill": { "displayName": "Pill", "purpose": "Status pills and the copy button." },
+      "mono": { "displayName": "Mono (pre)", "purpose": "Text output, logs, JSON, examples." },
+      "code": { "displayName": "Mono (code)", "purpose": "Inline flags, paths, config keys." }
+    },
+    "shadows": [
+      { "name": "shadow-1", "value": "0 1px 2px rgba(0, 0, 0, .05)", "dark": "0 1px 2px rgba(0, 0, 0, .5)", "purpose": "Rest shadow on cards, buttons, tables, pre, selected segment, tool details." },
+      { "name": "shadow-2", "value": "0 4px 14px rgba(0, 0, 0, .08)", "dark": "0 4px 14px rgba(0, 0, 0, .5)", "purpose": "Lift on hovered cards and open/targeted tool details." },
+      { "name": "dot-halo", "value": "0 0 0 3px color-mix(in srgb, currentColor 18%, transparent)", "purpose": "Soft ring around the 8px health-strip dot in its state colour." },
+      { "name": "nav-glass", "value": "background: color-mix(in srgb, var(--surface) 86%, transparent); backdrop-filter: blur(10px)", "purpose": "The sticky nav's translucency; the only blur in the system." }
+    ],
+    "focus": [
+      { "name": "focus-ring", "value": "outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px", "purpose": ":focus-visible on every element." }
+    ],
+    "motion": [
+      { "name": "duration-standard", "value": "150ms", "purpose": "Every transition: color, background, border-color, box-shadow, text-decoration-color, chevron transform. Default easing (ease)." },
+      { "name": "pulse", "value": "@keyframes pulse { 50% { opacity: .25; } } 1.2s ease-in-out infinite", "purpose": "Running state on pill dots and the strip dot." },
+      { "name": "copy-feedback", "value": "1200ms", "purpose": "How long the copy button reads 'copied'." },
+      { "name": "scroll", "value": "scroll-behavior: smooth", "purpose": "Anchor jumps to #tool-<name>." },
+      { "name": "reduced-motion", "value": "@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } *, ::before, ::after { transition: none !important; animation: none !important; } }", "purpose": "Kills every transition and animation." }
+    ],
+    "breakpoints": [
+      { "name": "phone", "value": "640px", "purpose": "max-width: tighter page padding, 44px nav, nav right cluster wraps to its own row, strip 12.5px, .scroll uncapped." },
+      { "name": "column", "value": "1440px", "purpose": "max-width of main; nav and strip align their content to it." }
+    ],
+    "layout": {
+      "mainPadding": "16px 24px 32px",
+      "mainPaddingPhone": "12px 16px 24px",
+      "navHeight": "48px",
+      "navHeightPhone": "44px",
+      "cardGrid": "repeat(auto-fill, minmax(320px, 1fr)) / gap 12px",
+      "statsGrid": "repeat(2, 1fr) / gap 8px 12px",
+      "scrollMaxHeight": "calc(100vh - 150px)"
+    },
+    "theme": {
+      "mechanism": "color-scheme + CSS custom properties; prefers-color-scheme applies unless html[data-theme] is set; button.theme cycles system / light / dark; stored in localStorage 'shed-theme'; boot script sets data-theme before paint.",
+      "fontFace": "@font-face Inter 100-900, font-display swap, latin unicode-range, src /static/inter.woff2 (self-hosted, SIL OFL, Google Fonts v20 subset)."
+    }
+  },
+  "components": [
+    {
+      "name": "Default Button",
+      "kind": "button",
+      "refersTo": "button-default",
+      "description": "Surface button with a strong hairline border; actions that are not 'run'.",
+      "html": "<button class=\"ds-btn\">copy</button>",
+      "css": ".ds-btn { font: 500 13px/1.5 Inter, system-ui, sans-serif; min-height: 28px; padding: 3px 11px; border-radius: 6px; cursor: pointer; border: 1px solid #d4d4d8; background: #ffffff; color: #18181b; box-shadow: 0 1px 2px rgba(0,0,0,.05); transition: background .15s, border-color .15s, box-shadow .15s; } .ds-btn:hover { background: #f4f4f5; } .ds-btn:active { box-shadow: none; } .ds-btn:focus-visible { outline: 2px solid #5e6ad2; outline-offset: 2px; }"
+    },
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Indigo fill; the one action that runs a job ('Run now').",
+      "html": "<button class=\"ds-btn-primary\">Run now</button>",
+      "css": ".ds-btn-primary { font: 500 13px/1.5 Inter, system-ui, sans-serif; min-height: 28px; padding: 3px 11px; border-radius: 6px; cursor: pointer; border: 1px solid transparent; background: #5e6ad2; color: #ffffff; box-shadow: 0 1px 2px rgba(0,0,0,.05); transition: background .15s, box-shadow .15s; } .ds-btn-primary:hover { background: #4f5bc4; } .ds-btn-primary:active { box-shadow: none; } .ds-btn-primary:focus-visible { outline: 2px solid #5e6ad2; outline-offset: 2px; }"
+    },
+    {
+      "name": "Status Pill",
+      "kind": "chip",
+      "refersTo": "pill-ok",
+      "description": "Dot + label chip in one of four states: ok, fail, running (pulses), off.",
+      "html": "<span class=\"ds-pill ds-ok\">ok</span> <span class=\"ds-pill ds-fail\">failed</span> <span class=\"ds-pill ds-running\">running</span> <span class=\"ds-pill ds-off\">never run</span>",
+      "css": ".ds-pill { display: inline-flex; align-items: center; gap: 6px; padding: 1px 8px 1px 7px; border-radius: 999px; font: 600 11.5px/1.6 Inter, system-ui, sans-serif; letter-spacing: .01em; white-space: nowrap; vertical-align: middle; } .ds-pill::before { content: \"\"; width: 6px; height: 6px; border-radius: 50%; background: currentColor; flex: none; } .ds-ok { color: #15803d; background: #dcfce7; } .ds-fail { color: #b91c1c; background: #fee2e2; } .ds-running { color: #b45309; background: #fef3c7; } .ds-running::before { animation: ds-pulse 1.2s ease-in-out infinite; } .ds-off { color: #6b6b76; background: #f4f4f5; } @keyframes ds-pulse { 50% { opacity: .25; } }"
+    },
+    {
+      "name": "Job Card",
+      "kind": "card",
+      "refersTo": "card",
+      "description": "Raised surface panel: name + pill header, muted meta line, summary, footer with timing and the primary button.",
+      "html": "<article class=\"ds-card\"><header><a class=\"ds-card-name\" href=\"#\">bdo-session</a><span class=\"ds-pill ds-ok\">ok</span></header><div class=\"ds-muted\">bdo-incidents · every 10m</div><p class=\"ds-card-summary\">QAT - events since 10-27 15:50:48</p><footer><span>last 7 min ago (2.9 s) · next in 2 min 51 s</span><button class=\"ds-btn-primary\">Run now</button></footer></article>",
+      "css": ".ds-card { font: 13.5px/1.5 Inter, system-ui, sans-serif; color: #18181b; border: 1px solid #e4e4e7; border-radius: 10px; padding: 12px 16px; background: #ffffff; box-shadow: 0 1px 2px rgba(0,0,0,.05); transition: border-color .15s, box-shadow .15s; max-width: 340px; } .ds-card:hover { border-color: #d4d4d8; box-shadow: 0 4px 14px rgba(0,0,0,.08); } .ds-card header { display: flex; justify-content: space-between; align-items: center; gap: 8px; } .ds-card-name { font-size: 14px; font-weight: 600; letter-spacing: -.005em; color: inherit; text-decoration: none; } .ds-muted { color: #6b6b76; } .ds-card-summary { margin: 8px 0 0; } .ds-card footer { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-top: 12px; color: #6b6b76; font-size: 12.5px; flex-wrap: wrap; font-variant-numeric: tabular-nums; } .ds-pill { display: inline-flex; align-items: center; gap: 6px; padding: 1px 8px 1px 7px; border-radius: 999px; font: 600 11.5px/1.6 Inter, system-ui, sans-serif; letter-spacing: .01em; } .ds-pill::before { content: \"\"; width: 6px; height: 6px; border-radius: 50%; background: currentColor; } .ds-ok { color: #15803d; background: #dcfce7; } .ds-btn-primary { font: 500 13px/1.5 Inter, system-ui, sans-serif; min-height: 28px; padding: 3px 11px; border-radius: 6px; border: 1px solid transparent; background: #5e6ad2; color: #fff; box-shadow: 0 1px 2px rgba(0,0,0,.05); cursor: pointer; } .ds-btn-primary:hover { background: #4f5bc4; }"
+    },
+    {
+      "name": "Stat Tiles",
+      "kind": "custom",
+      "refersTo": "card",
+      "description": "2x2 grid of 16px/600 tabular numbers over 12px muted captions, used inside env cards.",
+      "html": "<div class=\"ds-stats\"><div><b>14</b><span>incidents</span></div><div><b>15m31s</b><span>down, 1.1%</span></div><div><b>1</b><span>failed relogins</span></div><div><b>0</b><span>scraper stops</span></div></div>",
+      "css": ".ds-stats { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px 12px; font-family: Inter, system-ui, sans-serif; color: #18181b; max-width: 300px; } .ds-stats div { display: flex; flex-direction: column; gap: 1px; } .ds-stats b { font-size: 16px; font-weight: 600; letter-spacing: -.01em; font-variant-numeric: tabular-nums; } .ds-stats span { font-size: 12px; color: #6b6b76; }"
+    },
+    {
+      "name": "Segmented Control",
+      "kind": "chip",
+      "refersTo": "seg",
+      "description": "Filter control: sunken track, the current value raised as a white tab with the rest shadow.",
+      "html": "<span class=\"ds-seg\"><a href=\"#\">1h</a><a href=\"#\">6h</a><b>24h</b><a href=\"#\">48h</a></span>",
+      "css": ".ds-seg { display: inline-flex; padding: 2px; border: 1px solid #e4e4e7; border-radius: 7px; background: #f4f4f5; vertical-align: middle; font-family: Inter, system-ui, sans-serif; } .ds-seg > * { padding: 1px 9px; border-radius: 5px; text-decoration: none; color: #6b6b76; font-weight: 500; font-size: 12.5px; line-height: 1.5; transition: color .15s; } .ds-seg > a:hover { color: #18181b; } .ds-seg > a:focus-visible { outline: 2px solid #5e6ad2; outline-offset: 2px; } .ds-seg > b { background: #ffffff; color: #18181b; box-shadow: 0 1px 2px rgba(0,0,0,.05); }"
+    },
+    {
+      "name": "Navigation",
+      "kind": "nav",
+      "refersTo": "nav",
+      "description": "48px sticky glass bar: house mark + brand, tabs with an indigo underline on the current one, right cluster with scheduler pill, refresh stamp and theme button.",
+      "html": "<nav class=\"ds-nav\"><a class=\"ds-brand\" href=\"#\"><svg viewBox=\"0 0 32 32\" width=\"18\" height=\"18\"><path d=\"M4 14 16 4l12 10v14H4z\" fill=\"#b45309\"/><path d=\"M12 28V18h8v10\" fill=\"#fde68a\"/><path d=\"M2 15 16 3l14 12\" fill=\"none\" stroke=\"#78350f\" stroke-width=\"3\"/></svg>tool-shed</a><a href=\"#\" aria-current=\"page\">Jobs</a><a href=\"#\">Tools</a><a href=\"#\">BDO sessions</a><span class=\"ds-right\"><span class=\"ds-pill ds-ok\">scheduler on</span><span>refreshed 16:12:54, every 30 s</span><button class=\"ds-theme\" type=\"button\" aria-label=\"Switch theme\"><svg viewBox=\"0 0 16 16\" width=\"16\" height=\"16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\"><circle cx=\"8\" cy=\"8\" r=\"6\"/><path d=\"M8 2a6 6 0 0 1 0 12z\" fill=\"currentColor\" stroke=\"none\"/></svg></button></span></nav>",
+      "css": ".ds-nav { display: flex; flex-wrap: wrap; gap: 0 4px; align-items: stretch; min-height: 48px; padding: 0 24px; border-bottom: 1px solid #e4e4e7; background: rgba(255,255,255,.86); backdrop-filter: blur(10px); font: 13.5px/1.5 Inter, system-ui, sans-serif; color: #18181b; } .ds-nav a { display: inline-flex; align-items: center; color: #6b6b76; text-decoration: none; padding: 0 12px; border-bottom: 2px solid transparent; transition: color .15s, border-color .15s; } .ds-nav a:hover { color: #18181b; } .ds-nav a[aria-current] { color: #18181b; border-bottom-color: #5e6ad2; } .ds-nav a:focus-visible { outline: 2px solid #5e6ad2; outline-offset: -2px; } .ds-brand { color: #18181b !important; font-weight: 600; font-size: 14px; gap: 8px; padding-left: 0 !important; margin-right: 12px; border-bottom: 0 !important; letter-spacing: -.01em; } .ds-right { margin-left: auto; display: inline-flex; align-items: center; gap: 12px; color: #6b6b76; font-size: 12.5px; font-variant-numeric: tabular-nums; } .ds-theme { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; padding: 0; border-radius: 6px; border: 1px solid #d4d4d8; background: #fff; color: #6b6b76; cursor: pointer; box-shadow: 0 1px 2px rgba(0,0,0,.05); } .ds-theme:hover { color: #18181b; } .ds-pill { display: inline-flex; align-items: center; gap: 6px; padding: 1px 8px 1px 7px; border-radius: 999px; font: 600 11.5px/1.6 Inter, system-ui, sans-serif; letter-spacing: .01em; } .ds-pill::before { content: \"\"; width: 6px; height: 6px; border-radius: 50%; background: currentColor; } .ds-ok { color: #15803d; background: #dcfce7; }"
+    },
+    {
+      "name": "Health Strip",
+      "kind": "custom",
+      "refersTo": "strip",
+      "description": "The first answer on every page: state dot with halo, bold headline, then the stats behind it.",
+      "html": "<div class=\"ds-strip ds-strip-ok\"><span class=\"ds-dot\"></span><b>All healthy</b><span>1 job</span><span>last run 7 min ago (2.9 s)</span><span>next in 2 min 44 s</span></div><div class=\"ds-strip ds-strip-fail\"><span class=\"ds-dot\"></span><b>1 failing: bdo-session</b><span>1 job</span></div><div class=\"ds-strip ds-strip-running\"><span class=\"ds-dot\"></span><b>running bdo-session</b><span>1 job</span></div>",
+      "css": ".ds-strip { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding: 7px 24px; border-bottom: 1px solid #e4e4e7; background: #ffffff; font: 13px/1.5 Inter, system-ui, sans-serif; color: #6b6b76; font-variant-numeric: tabular-nums; } .ds-strip b { color: #18181b; font-weight: 600; } .ds-dot { width: 8px; height: 8px; border-radius: 50%; background: #6b6b76; color: #6b6b76; box-shadow: 0 0 0 3px color-mix(in srgb, currentColor 18%, transparent); } .ds-strip-ok .ds-dot { background: #15803d; color: #15803d; } .ds-strip-fail .ds-dot { background: #b91c1c; color: #b91c1c; } .ds-strip-fail b { color: #b91c1c; } .ds-strip-running .ds-dot { background: #b45309; color: #b45309; animation: ds-pulse 1.2s ease-in-out infinite; } @keyframes ds-pulse { 50% { opacity: .25; } }"
+    },
+    {
+      "name": "Data Table",
+      "kind": "custom",
+      "refersTo": "table-header",
+      "description": "Dense scannable table in a bordered scroll container with a sticky sunken header; rows hover to sunken; 'off' rows dim.",
+      "html": "<div class=\"ds-scroll\"><table class=\"ds-data\"><tr><th>run</th><th>started</th><th>status</th><th>took</th><th>summary</th></tr><tr><td><a href=\"#\">7 min ago</a></td><td class=\"ds-time\">2026-10-27 16:05:48</td><td><span class=\"ds-pill ds-ok\">ok</span></td><td class=\"ds-num\">2.9 s</td><td>QAT - events since 10-27 15:50:48</td></tr><tr><td><a href=\"#\">17 min ago</a></td><td class=\"ds-time\">2026-10-27 15:55:47</td><td><span class=\"ds-pill ds-off\">visit</span></td><td class=\"ds-num\">3.1 s</td><td>timer visit</td></tr></table></div>",
+      "css": ".ds-scroll { overflow: auto; max-width: 100%; border: 1px solid #e4e4e7; border-radius: 8px; background: #ffffff; box-shadow: 0 1px 2px rgba(0,0,0,.05); font-family: Inter, system-ui, sans-serif; color: #18181b; } .ds-data { border-collapse: separate; border-spacing: 0; font-size: 13px; min-width: 100%; line-height: 1.4; } .ds-data th, .ds-data td { border-bottom: 1px solid #e4e4e7; padding: 6px 12px; text-align: left; vertical-align: top; } .ds-data th { position: sticky; top: 0; background: #f4f4f5; color: #6b6b76; font-weight: 500; font-size: 12px; white-space: nowrap; } .ds-data tr:last-child td { border-bottom: 0; } .ds-num { text-align: right; font-variant-numeric: tabular-nums; } .ds-time { white-space: nowrap; font-variant-numeric: tabular-nums; } .ds-data tr:hover td { background: #f4f4f5; } .ds-data tr:has(.ds-off) td { color: #6b6b76; } .ds-data a { color: inherit; text-decoration-color: #d4d4d8; text-underline-offset: 3px; transition: text-decoration-color .15s; } .ds-data a:hover { text-decoration-color: currentColor; } .ds-pill { display: inline-flex; align-items: center; gap: 6px; padding: 1px 8px 1px 7px; border-radius: 999px; font: 600 11.5px/1.6 Inter, system-ui, sans-serif; letter-spacing: .01em; vertical-align: middle; } .ds-pill::before { content: \"\"; width: 6px; height: 6px; border-radius: 50%; background: currentColor; } .ds-ok { color: #15803d; background: #dcfce7; } .ds-off { color: #6b6b76; background: #f4f4f5; }"
+    },
+    {
+      "name": "Messages",
+      "kind": "custom",
+      "refersTo": "error",
+      "description": "Error (red wash), notice (amber wash) and the dashed empty state.",
+      "html": "<div class=\"ds-error\"><strong>Failed:</strong> SLS query timed out</div><p class=\"ds-notice\">Running now. This page updates when it finishes.</p><div class=\"ds-empty\"><p>No run recorded yet. Press <b>Run now</b>, or wait for the scheduler.</p></div>",
+      "css": ".ds-error, .ds-notice { border: 1px solid; border-radius: 8px; padding: 10px 12px; margin: 12px 0; font: 13.5px/1.5 Inter, system-ui, sans-serif; color: #18181b; } .ds-error { border-color: rgba(185,28,28,.4); background: #fee2e2; } .ds-notice { border-color: rgba(180,83,9,.4); background: #fef3c7; } .ds-empty { border: 1px dashed #d4d4d8; border-radius: 10px; padding: 16px 24px; max-width: 760px; background: #ffffff; font: 13.5px/1.5 Inter, system-ui, sans-serif; color: #18181b; } .ds-empty p { margin: 0; }"
+    },
+    {
+      "name": "Disclosure",
+      "kind": "custom",
+      "refersTo": "details-tool",
+      "description": "details/summary with the masked rotating chevron and an inline copy button; pre block inside.",
+      "html": "<details class=\"ds-details\" open><summary>Text output <small>as the CLI prints it</small><button class=\"ds-copy\">copy</button></summary><pre class=\"ds-pre\">QAT - events since 10-27 15:50:48\n  16:05:21 timer visit, new expires_at 10-27 18:05:21</pre></details>",
+      "css": ".ds-details { font: 13.5px/1.5 Inter, system-ui, sans-serif; color: #18181b; } .ds-details > summary { cursor: pointer; color: #6b6b76; margin: 12px 0 4px; list-style: none; display: flex; align-items: center; gap: 6px; } .ds-details > summary::-webkit-details-marker { display: none; } .ds-details > summary::before { content: \"\"; flex: none; width: 14px; height: 14px; background: currentColor; transition: transform .15s; mask: url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23000' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 4l4 4-4 4'/%3E%3C/svg%3E\") center / contain no-repeat; -webkit-mask: url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23000' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 4l4 4-4 4'/%3E%3C/svg%3E\") center / contain no-repeat; } .ds-details[open] > summary::before { transform: rotate(90deg); } .ds-details > summary:hover { color: #18181b; } .ds-details small { color: #6b6b76; } .ds-copy { font: 500 11.5px/1.5 Inter, system-ui, sans-serif; padding: 1px 8px; margin-left: 8px; border-radius: 6px; border: 1px solid #d4d4d8; background: #fff; color: inherit; cursor: pointer; } .ds-copy:hover { background: #f4f4f5; } .ds-pre { background: #ffffff; border: 1px solid #e4e4e7; border-radius: 8px; padding: 10px 12px; box-shadow: 0 1px 2px rgba(0,0,0,.05); overflow: auto; font: 12.5px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; margin: 8px 0; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Status Board Next to the Terminals",
+    "overview": "A one-machine operations dashboard that sits beside dark terminals and must answer \"is anything failing?\" before it shows anything else. It takes the Linear / Vercel / Raycast product idiom and plays it straight: layered neutral surfaces, hairline borders, soft ambient shadows, a single indigo accent reserved for interaction and selection, and state colour (green, red, amber) only where it carries meaning. No irony, no added quirk, no decoration that does not carry a reading.\n\nDensity is the point. Body copy runs at 13.5px Inter with tabular numerals, tables at 13px with 12px muted headers, and the whole page is a stack of hairline-separated, sticky-headed, scannable regions. Elevation is real but quiet: panels sit one pixel-shadow above the ground and lift to a 14px blur on hover. Light and dark follow the Mac setting with a three-way switch; the dark theme is a true near-black, not a dimmed light theme.\n\nThe scale is small and fixed: six spacing steps (4 to 32px), radii from 6px (buttons) to 10px (cards), one transition duration (150ms), one animation (a 1.2s opacity pulse on anything running). Everything is served from one stdlib `http.server` page with inline CSS; the system has to stay expressible as a single string.",
+    "keyCharacteristics": [
+      "Health first: a full-width strip under the nav states failing / running / healthy before any content.",
+      "Layered neutrals: tinted ground, white or near-black panels, hairline borders, ambient shadows.",
+      "One accent (indigo) for interaction, selection and focus; state colours only on pills, dots, strips and notices.",
+      "Inter at 13.5px with `cv11` + `ss01` and tabular numerals everywhere a number can change.",
+      "Status pills with a leading dot; segmented controls for filters; sticky table headers.",
+      "150ms transitions, a single 1.2s pulse, both killed under reduced motion.",
+      "Light and dark from the OS, overridable per browser (`shed-theme` in localStorage)."
+    ],
+    "rules": [
+      { "name": "The One Accent Rule", "body": "Indigo appears only on things you can act on or have selected: the primary button, the current tab, the focus ring, the caret, selection. Never on headings, borders at rest, or data.", "section": "colors" },
+      { "name": "The Meaning-Only State Rule", "body": "Green, red and amber are set on pills, strip dots, `.error` and `.notice` and nowhere else. A number is never coloured; its pill is.", "section": "colors" },
+      { "name": "The Theme Pair Rule", "body": "Every colour token has a light and a dark value and both themes share every rule; the dark theme is a different palette under the same CSS, not a filter. A new colour must be added to all three blocks (`:root`, `prefers-color-scheme: dark`, `[data-theme=\"dark\"]`).", "section": "colors" },
+      { "name": "The 18px Ceiling Rule", "body": "Nothing on the page is set larger than 18px. Hierarchy comes from weight (600 vs 400 vs 500), colour (ink vs muted) and tracking, not size.", "section": "typography" },
+      { "name": "The Tabular Number Rule", "body": "Any element whose number can change between refreshes gets `font-variant-numeric: tabular-nums` so it does not shimmy.", "section": "typography" },
+      { "name": "The Two Shadows Rule", "body": "There are exactly two box-shadows, rest and lift, and the only transition between them is hover or open. Buttons drop their shadow entirely on `:active`; nothing ever gets a third, larger shadow.", "section": "elevation" },
+      { "name": "The Border Carries Dark Rule", "body": "In dark mode shadows go to 50% black but the border steps from `hairline` to `hairline-strong` on hover; the edge, not the glow, is what reads.", "section": "elevation" }
+    ],
+    "dos": [
+      "Do put the health answer first: any new page keeps the nav and the strip and opens with an `h1` + `.meta` row before content.",
+      "Do build new controls from the existing primitives: pill for state, `.seg` for a filter, default button for actions, `.primary` for the one action that runs something.",
+      "Do keep tables in `.scroll` > `table.data` with the 12px sticky header and 13px cells; density is a product commitment.",
+      "Do use `tabular-nums` on any number that changes, and the `.num` / `.time` / `.key` cell classes.",
+      "Do add every new colour to all three theme blocks and check it on `desktop-bdo-dark.png`-style dark captures.",
+      "Do stay inside the six-step spacing scale and the 4 / 6 / 8 / 10px radius ladder (999px for pills).",
+      "Do keep state colour on the pill, dot, strip or message box, with the hue's wash behind it."
+    ],
+    "donts": [
+      "Don't set any text above 18px or use a second typeface; hierarchy is weight and colour.",
+      "Don't colour headings, borders at rest, or data cells with the accent or a state hue.",
+      "Don't add a third shadow, a hard-offset shadow, a gradient, or an image background; the lift stops at `--shadow-2`.",
+      "Don't introduce a motion longer than 150ms or a second animation; the pulse is the only ambient movement and it must stay inside the reduced-motion kill.",
+      "Don't use amber for warnings; in this system it reads as \"running\".",
+      "Don't load web fonts or icons from a CDN or icon package; the font is self-hosted and the only icons are inline SVG (house mark, theme circle, masked chevron).",
+      "Don't move the stylesheet out of `_STYLE`; the system has to remain one inline string served by stdlib `http.server`."
+    ]
+  }
+}

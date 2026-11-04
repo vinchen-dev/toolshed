@@ -1,0 +1,58 @@
+[project]
+name = "tool-shed"
+dynamic = ["version"]
+description = "A shed of small, well-described tools that AI coding agents call during development."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "aliyun-log-python-sdk>=0.9.52",
+    "httpx>=0.28.1",
+    "mcp>=2.3",
+    "playwright>=1.64.1",
+    "pydantic>=2.11",
+    "yt-dlp>=2026.10.26",
+]
+
+[project.scripts]
+shed = "shed.cli:entry"
+
+[dependency-groups]
+dev = [
+    "pytest>=9",
+    "ruff>=0.17",
+    "pyright>=1.1.400",
+]
+
+[build-system]
+requires = ["hatchling>=1.27", "hatch-vcs>=0.4"]
+build-backend = "hatchling.build"
+
+[tool.hatch.version]
+source = "vcs"                       # the version is the latest `v*` git tag (+ distance and hash past it)
+raw-options = { fallback_version = "0.0.0" }   # a checkout with no tags or commits still builds
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/shed"]
+
+[tool.ruff]
+line-length = 110
+target-version = "py312"
+src = ["src", "tests", "tools"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
+
+[tool.ruff.lint.per-file-ignores]
+"src/shed/ui.py" = ["E501"]  # HTML templates read better unwrapped
+
+[tool.pyright]
+include = ["src", "tests", "tools"]
+typeCheckingMode = "standard"
+pythonVersion = "3.12"
+venvPath = "."
+venv = ".venv"
+
+[tool.pytest.ini_options]
+testpaths = ["tests", "tools"]
+addopts = "-ra --import-mode=importlib --ignore=tools/_template"
+filterwarnings = ["ignore::DeprecationWarning:aliyun\\.log"]

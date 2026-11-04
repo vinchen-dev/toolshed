@@ -1,0 +1,46 @@
+{
+ "posts": [
+  {
+   "uri": "at://did:plc:fdiw4wh36vpiltjnop4mbyze/app.bsky.feed.post/3mzhgyo677e2u",
+   "cid": "bafyreia5j2fftn5bxk4vzwzwuau23y4auga6k25pwd22dsprm6viyhzkfq",
+   "author": {
+    "did": "did:plc:fdiw4wh36vpiltjnop4mbyze",
+    "handle": "achadinhoscupons.bsky.social",
+    "displayName": "Achadinhos & Cupons"
+   },
+   "record": {
+    "$type": "app.bsky.feed.post",
+    "createdAt": "2026-11-04T03:47:31.830Z",
+    "text": "Saida de Praia Plus Size Pareo Menor Preço Varias Cores\nDe: R$30,82\n💸Por: R$29,90\n\n🛒 Compre aqui: https://linkvaro.com/z49UBS9h?src=bs\n\n⭐⭐⭐⭐⭐ 4,7\n🏪 Vendido por Shopee\n🔥 3% OFF\nEssa passou pelo nosso radar, dá uma olhada 🙌\n\nMais ofertas no nosso grupo:\nlupagrupos.com"
+   },
+   "bookmarkCount": 0,
+   "replyCount": 0,
+   "repostCount": 0,
+   "likeCount": 0,
+   "quoteCount": 0,
+   "indexedAt": "2026-11-04T03:47:34.284Z"
+  },
+  {
+   "uri": "at://did:plc:yxr7zds4d2c3nxo2bclegltm/app.bsky.feed.post/3mzhgy7ymtt2f",
+   "cid": "bafyreih62yjtbsufemprv546kpirmlmlzctu55frmg73oq7u3y7k33aoui",
+   "author": {
+    "did": "did:plc:yxr7zds4d2c3nxo2bclegltm",
+    "handle": "cantordasofertas.bsky.social",
+    "displayName": "Cantor das Ofertas"
+   },
+   "record": {
+    "$type": "app.bsky.feed.post",
+    "createdAt": "2026-11-04T03:47:16.925Z",
+    "text": "KIT 3/6 Sacos de Armazenamento | Organizador de Guarda-Roupa Roupas Viagem Anti Poeira Umidade Dobrável Multiuso\n🔥 DE R$264,65 | POR R$44,99\n\n🛒 Compre aqui: https://linkvaro.com/8aKlF90?src=bs\n\n⭐⭐⭐⭐⭐ 4,9\n🏪 Vendido por Shopee\n🔥 83% OFF\nGaranta o seu antes que suba de novo 🔥\n\n👉 lupagrupos.com"
+   },
+   "bookmarkCount": 0,
+   "replyCount": 0,
+   "repostCount": 0,
+   "likeCount": 0,
+   "quoteCount": 0,
+   "indexedAt": "2026-11-04T03:47:20.196Z"
+  }
+ ],
+ "cursor": "eyJzIjpbMTc5Mzc2NDAzNjAwMCwiZGlkOnBsYzp5eHI3emRzNGQyYzNueG8yYmNsZWdsdG0iLCIzbXpoZ3k3eW10dDJmIl19",
+ "hitsTotal": 10000
+}

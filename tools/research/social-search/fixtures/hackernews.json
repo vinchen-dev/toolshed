@@ -1,0 +1,27 @@
+{
+ "hits": [
+  {
+   "objectID": "47760530",
+   "title": "AI Agent Stores – Making Shopee Products Findable by ChatGPT and Perplexity",
+   "url": "https://www.bbiz.shop/blog",
+   "author": "kenttuzuu",
+   "points": 4,
+   "num_comments": 1,
+   "created_at": "2026-04-14T02:25:27Z",
+   "created_at_i": 1776133527,
+   "story_text": null
+  },
+  {
+   "objectID": "38078892",
+   "title": "The Practice of StarRocks at Shopee [video]",
+   "url": "https://www.youtube.com/watch?v=FJf6tVFr-20",
+   "author": "HermitX",
+   "points": 2,
+   "num_comments": 1,
+   "created_at": "2023-10-31T01:29:49Z",
+   "created_at_i": 1698715789,
+   "story_text": null
+  }
+ ],
+ "nbHits": 1096
+}
