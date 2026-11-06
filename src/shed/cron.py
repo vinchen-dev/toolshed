@@ -32,6 +32,9 @@ CRON_FILE = Path(os.environ.get("SHED_CRON_FILE") or Path.home() / ".config" / "
 STATE_DIR = Path(os.environ.get("SHED_STATE_DIR") or Path.home() / ".local" / "state" / "shed")
 AGENT_LABEL = "com.tool-shed.cron"
 AGENT_PLIST = Path.home() / "Library" / "LaunchAgents" / f"{AGENT_LABEL}.plist"
+AGENT_GONE_TIMEOUT_S = 10.0
+BOOTSTRAP_ATTEMPTS = 3
+BOOTSTRAP_RETRY_S = 2.0
 AGENT_INTERVAL_S = 60
 _EVERY = re.compile(r"^(\d+)\s*([smhd]?)$")
 _UNITS = {"": 1, "s": 1, "m": 60, "h": 3600, "d": 86400}
@@ -396,6 +399,19 @@ def _domain() -> str:
     return f"gui/{os.getuid()}"
 
 
+def _agent_loaded() -> bool:
+    return sh("launchctl", ["print", f"{_domain()}/{AGENT_LABEL}"], allow_failure=True).code == 0
+
+
+def _bootout() -> None:
+    """Stop the agent and wait until launchd has let go of it. bootout returns before the old process exits,
+    and a bootstrap before then fails with "Input/output error"."""
+    sh("launchctl", ["bootout", f"{_domain()}/{AGENT_LABEL}"], allow_failure=True)
+    deadline = time.monotonic() + AGENT_GONE_TIMEOUT_S
+    while _agent_loaded() and time.monotonic() < deadline:
+        time.sleep(0.2)
+
+
 def agent_paths(plist_path: Path = AGENT_PLIST, state_dir: Path = STATE_DIR) -> tuple[Path, Path]:
     """(permanent location that launchd loads at login, fallback inside the state dir)."""
     return plist_path, state_dir / plist_path.name
@@ -408,8 +424,8 @@ def install_agent(
     state_dir.mkdir(parents=True, exist_ok=True)
     content = agent_plist(shed_executable(), state_dir, port)
     permanent, fallback = agent_paths(plist_path, state_dir)
+    _bootout()
     for candidate in (permanent, fallback):
-        sh("launchctl", ["bootout", f"{_domain()}/{AGENT_LABEL}"], allow_failure=True)
         if candidate.is_file():
             candidate.unlink()
     try:
@@ -419,10 +435,15 @@ def install_agent(
     except PermissionError:
         fallback.write_bytes(content)
         target, is_permanent = fallback, False
-    result = sh("launchctl", ["bootstrap", _domain(), str(target)], allow_failure=True)
-    if result.code != 0:
-        raise ToolError(f"launchctl bootstrap failed: {result.stderr.strip() or result.stdout.strip()}")
-    return target, is_permanent
+    reason = ""
+    for attempt in range(1, BOOTSTRAP_ATTEMPTS + 1):
+        result = sh("launchctl", ["bootstrap", _domain(), str(target)], allow_failure=True)
+        if result.code == 0:
+            return target, is_permanent
+        reason = result.stderr.strip() or result.stdout.strip()
+        if attempt < BOOTSTRAP_ATTEMPTS:
+            time.sleep(BOOTSTRAP_RETRY_S)
+    raise ToolError(f"launchctl bootstrap failed: {reason}")
 
 
 def uninstall_agent(plist_path: Path = AGENT_PLIST, state_dir: Path = STATE_DIR) -> bool:
@@ -430,7 +451,7 @@ def uninstall_agent(plist_path: Path = AGENT_PLIST, state_dir: Path = STATE_DIR)
     found = [p for p in agent_paths(plist_path, state_dir) if p.is_file()]
     if not found:
         return False
-    sh("launchctl", ["bootout", f"{_domain()}/{AGENT_LABEL}"], allow_failure=True)
+    _bootout()
     for path in found:
         path.unlink()
     return True

@@ -4,7 +4,12 @@ import json
 import subprocess
 import sys
 from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
 
+import pytest
+
+from shed import cli
 from shed.registry import SHED_ROOT
 
 
@@ -72,3 +77,77 @@ def test_list_and_help_show_each_tools_version() -> None:
     tools = json.loads(shed("list", "--json").stdout)
     assert next(t for t in tools if t["name"] == "git-context")["version"] == "0.1.0"
     assert shed("help", "git-context").stdout.startswith("shed git-context  (v0.1.0)")
+
+
+class FakeDashboard:
+    """The launchd agent and its dashboard as `shed start` sees them: /health answers and install_agent."""
+
+    def __init__(self, up: bool, busy_polls: int = 0, permanent: bool = True) -> None:
+        self.pid: int | None = 100 if up else None
+        self.busy_polls, self.permanent, self.installs = busy_polls, permanent, 0
+        self.job_running = False
+
+    def health(self) -> dict[str, Any] | None:
+        if self.pid is None:
+            return None
+        running = ["bdo-session"] if self.busy_polls > 0 else []
+        self.busy_polls -= 1
+        self.job_running = bool(running)
+        return {"ok": True, "pid": self.pid, "running": running, "version": "0.2.0"}
+
+    def install(self, port: int) -> tuple[Path, bool]:
+        assert not self.job_running, "a running job was cut off"
+        self.installs += 1
+        self.pid = 200 + self.installs
+        return Path("/x/com.tool-shed.cron.plist"), self.permanent
+
+
+@pytest.fixture
+def no_sleep(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(cli.time, "sleep", lambda s: None)
+
+
+def use(monkeypatch: pytest.MonkeyPatch, fake: FakeDashboard, tunnels: list[str] | None = None) -> None:
+    monkeypatch.setattr(cli, "_health", fake.health)
+    monkeypatch.setattr(cli, "install_agent", fake.install)
+    monkeypatch.setattr(cli, "_open_tunnels", lambda: tunnels or [])
+
+
+def test_start_starts_the_agent_and_waits_for_the_dashboard(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], no_sleep: None
+) -> None:
+    fake = FakeDashboard(up=False)
+    use(monkeypatch, fake)
+    assert cli.main(["start"]) == 0
+    out = capsys.readouterr()
+    assert out.out == "Started the dashboard and scheduler (shed 0.2.0): http://127.0.0.1:8765\n"
+    assert fake.installs == 1 and out.err == ""
+
+
+def test_start_restarts_after_running_jobs_finish_and_names_the_stopped_tunnels(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], no_sleep: None
+) -> None:
+    fake = FakeDashboard(up=True, busy_polls=3, permanent=False)
+    use(monkeypatch, fake, tunnels=["finance"])
+    assert cli.main(["start"]) == 0
+    out = capsys.readouterr()
+    assert out.out.splitlines() == [
+        "Restarted the dashboard and scheduler (shed 0.2.0): http://127.0.0.1:8765",
+        "Tunnels stopped by the restart: finance. Start them again at http://127.0.0.1:8765/tunnels; "
+        "each gets a new public URL.",
+    ]
+    assert "waiting for bdo-session to finish" in out.err and "&& shed start" in out.err
+
+
+def test_start_fails_when_the_dashboard_never_answers_and_rejects_arguments(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], no_sleep: None
+) -> None:
+    fake = FakeDashboard(up=False)
+    use(monkeypatch, fake)
+    # Registered, but the dashboard never answers.
+    monkeypatch.setattr(cli, "install_agent", lambda port: (Path("/x.plist"), True))
+    monkeypatch.setattr(cli, "DASHBOARD_START_S", 0.01)
+    assert cli.main(["start"]) == 1
+    assert "did not answer" in capsys.readouterr().err
+    use(monkeypatch, fake)
+    assert cli.main(["start", "--now"]) == 2

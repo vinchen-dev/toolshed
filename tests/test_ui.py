@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import threading
 import time
 import urllib.error
@@ -53,7 +54,13 @@ def test_dashboard_run_now_and_api(server: UIServer) -> None:
     status, body = get(f"{base}/")
     assert status == 200 and "never run" in body and 'href="/jobs/echo"' in body
     status, payload = get(f"{base}/health")
-    assert json.loads(payload) == {"ok": True, "schedule": False, "running": []}
+    assert json.loads(payload) == {
+        "ok": True,
+        "schedule": False,
+        "running": [],
+        "pid": os.getpid(),
+        "version": shed_version(),
+    }
 
     status, body = get(f"{base}/jobs/echo/run", "POST")  # 303 to the job page
     assert status == 200 and "echo" in body

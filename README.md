@@ -13,13 +13,16 @@ Instructions for agents working in this repo are in `AGENTS.md` (Codex and other
 
 ## Setup
 
-Requires [uv](https://docs.astral.sh/uv/) (`brew install uv`; it fetches Python 3.12 itself if needed) and, for the MCP registration, the `claude` CLI. First install and every later update are the same command:
+Requires [uv](https://docs.astral.sh/uv/) (`brew install uv`; it fetches Python 3.12 itself if needed) and, for the MCP registration, the `claude` CLI. First install and every later update are the same two commands:
 
 ```sh
 git clone <this repo> ~/Desktop/Projects/tool-shed && cd ~/Desktop/Projects/tool-shed
 uv run shed update             # venv, global `shed`, Chromium, skills, MCP servers; rerun after every pull or `uv add`
+shed start                     # start the dashboard and scheduler, or restart them so they run the new code
 shed list
 ```
+
+`shed start` is needed after every update because the running dashboard keeps the code it started with, the tools its scheduled jobs run included. It waits for a running job to finish, restarts the launchd agent, waits until the new dashboard answers and prints its version. A restart ends every Cloudflare tunnel, so it names the ones it stopped; start them again on the Tunnels page (each gets a new URL). It also starts the agent after a reboot when the agent could not be made permanent (see below).
 
 `shed update` is idempotent and does, in order: `uv sync`; `uv tool install --editable . --reinstall` (the global `shed` keeps its own environment, so new dependencies need this); `uv run playwright install chromium` when Playwright is a dependency (the research group); `brew install cloudflared` when it is missing and Homebrew exists (for the dashboard's Tunnels page); `shed skills link`; and one MCP server per tool group found under `tools/` plus the job tools (`tool-shed` for `base`, `tool-shed-pms`, `tool-shed-autorunner`, `tool-shed-research`, `tool-shed-jobs`) in every agent CLI it finds on PATH: Claude Code (`claude mcp add --scope user`) and Codex (`codex mcp add`), removing a stale registration of the same name first. A group deleted from this machine is simply not registered. `shed update --dry-run` prints the plan. An agent CLI that is not on PATH is skipped with a message. Any other agent can use the tools through its shell: `shed list --json`, then `shed <tool> --json`.
 
@@ -195,13 +198,14 @@ shed runs bdo-session           # history: started, status, took, run id, summar
 shed runs bdo-session --last    # the latest rendered output (the table)
 shed runs bdo-session --json    # the latest record: args, timings, result data, log
 shed ui --open                 # dashboard at http://127.0.0.1:8765
-shed cron install              # launchd agent that keeps `shed ui --cron` running: dashboard + scheduler
-shed cron uninstall
+shed start                     # (re)start the launchd agent that keeps `shed ui --cron` running: dashboard + scheduler
+shed cron install              # the same registration without the waiting and the report
+shed cron uninstall            # stop it and remove the agent
 ```
 
 Each run is a JSON file under `~/.local/state/shed/runs/<job>/` holding the rendered text, the result data, the tool's log lines and any error, so an agent can read `shed runs <job> --json` instead of re-running the tool. `cron.log` in the same folder has one line per run.
 
-`shed cron install` writes the agent to `~/Library/LaunchAgents`. If that folder is not writable (an installer may have left it owned by root), the agent is registered from `~/.local/state/shed/` instead and runs until the next reboot; `sudo chown $(whoami) ~/Library/LaunchAgents && shed cron install` makes it permanent.
+`shed start` and `shed cron install` write the agent to `~/Library/LaunchAgents`. If that folder is not writable (an installer may have left it owned by root), the agent is registered from `~/.local/state/shed/` instead and runs until the next reboot; `sudo chown $(whoami) ~/Library/LaunchAgents && shed start` makes it permanent. Re-registering waits for the old agent to exit and retries the bootstrap, because launchd refuses a new agent with "Bootstrap failed: 5: Input/output error" while the old one is still shutting down.
 
 The dashboard (`src/shed/ui.py`, stdlib `http.server`, no dependencies) opens with a health strip (all healthy, or which jobs are failing, with the last run and a per-second countdown to the next) and shows one card per job with its status, last run and a run-now button. A theme button in the top bar switches between following the Mac setting, light and dark. A job's page renders the latest result as facts and tables built from the tool's JSON (nothing tool-specific), with the CLI text, the tool's log and the raw JSON one click away, plus the run history with a page per run and the job's settings. `/tools` opens with a one-line index of every tool; each tool's flags and copyable examples fold out underneath. A tool can ship `view.py` beside its `tool.py` to give its jobs a page of their own at `/view/<job>`; `bdo-incidents` does, so `/view/bdo-session` shows QAT and PROD status, the latest incident table and a timeline stitched from every kept run (window and env pickers in the header). Pages refresh themselves every 30 s, every 3 s while a run is in progress. It binds to localhost only and has no authentication; never expose it on another interface by itself.
 

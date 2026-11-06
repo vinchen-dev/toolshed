@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 import sys
+import time
 import traceback
 import urllib.request
 from collections.abc import Sequence
@@ -36,6 +38,9 @@ from shed.scaffold import scaffold_tool
 from shed.skills import CLAUDE_SKILLS_DIR, link_skills, list_skills
 from shed.ui import DEFAULT_HOST, DEFAULT_PORT, serve_ui
 
+JOB_WAIT_S = 120.0
+DASHBOARD_START_S = 20.0
+
 USAGE = """\
 shed - tools for AI coding agents
 
@@ -54,6 +59,7 @@ Usage:
   shed runs [job] [--last|--json] [--limit N]  Run history; --last prints the latest output, --json the record
   shed ui [--port N] [--cron] [--open]  Serve the dashboard on localhost; --cron also runs due jobs
   shed update [--dry-run]         Update this machine: venv, global shed, Chromium, skills, MCP servers
+  shed start                      Start the dashboard and scheduler, or restart them after `shed update`
   shed --version                  Print the shed's version (latest v* git tag, or the installed package's)
 
 Output contract: results on stdout, logs and errors on stderr.
@@ -178,12 +184,21 @@ def _dashboard_url() -> str:
     return f"http://{DEFAULT_HOST}:{DEFAULT_PORT}"
 
 
-def _dashboard_up() -> bool:
+def _get_json(path: str, timeout: float = 1) -> Any:
     try:
-        with urllib.request.urlopen(f"{_dashboard_url()}/health", timeout=1) as resp:
-            return resp.status == 200
+        with urllib.request.urlopen(f"{_dashboard_url()}{path}", timeout=timeout) as resp:
+            return json.loads(resp.read()) if resp.status == 200 else None
     except (OSError, ValueError):
-        return False
+        return None
+
+
+def _health() -> dict[str, Any] | None:
+    found = _get_json("/health")
+    return found if isinstance(found, dict) else None
+
+
+def _dashboard_up() -> bool:
+    return _health() is not None
 
 
 def _cron_status(jobs: Sequence[Any], store: RunStore, json_mode: bool) -> None:
@@ -269,12 +284,7 @@ def _cmd_cron(rest: Sequence[str]) -> int:
             "due jobs every minute."
         )
         if not permanent:
-            _err(
-                f"warning: {AGENT_PLIST.parent} is not writable (owned by root), so the agent was registered "
-                "from "
-                f"the shed's state folder and will not start again after a reboot. To make it permanent:\n"
-                f"  sudo chown $(whoami) {AGENT_PLIST.parent} && shed cron install"
-            )
+            _warn_not_permanent()
         return EXIT_OK
     if sub == "uninstall":
         _out("Removed the launchd agent." if uninstall_agent() else "No agent installed.")
@@ -282,6 +292,76 @@ def _cmd_cron(rest: Sequence[str]) -> int:
     raise UsageError(
         "Usage: shed cron [--json] | shed cron run [job ...] [--force] | shed cron install | uninstall"
     )
+
+
+def _warn_not_permanent() -> None:
+    _err(
+        f"warning: {AGENT_PLIST.parent} is not writable (owned by root), so the agent was registered from "
+        "the shed's state folder and will not start again after a reboot. To make it permanent:\n"
+        f"  sudo chown $(whoami) {AGENT_PLIST.parent} && shed start"
+    )
+
+
+def _wait_for_jobs(health: dict[str, Any]) -> dict[str, Any] | None:
+    """Let running jobs finish before a restart cuts them off; the dashboard's /health lists them."""
+    _err(f"waiting for {', '.join(health['running'])} to finish before restarting...")
+    deadline = time.monotonic() + JOB_WAIT_S
+    current: dict[str, Any] | None = health
+    while current is not None and current.get("running"):
+        if time.monotonic() > deadline:
+            raise ToolError(
+                f"{', '.join(current['running'])} still running after {JOB_WAIT_S:.0f}s; "
+                "run `shed start` again once it finishes"
+            )
+        time.sleep(1)
+        current = _health()
+    return current
+
+
+def _open_tunnels() -> list[str]:
+    found = _get_json("/api/tunnels", timeout=2)
+    rows = found.get("tunnels", []) if isinstance(found, dict) else []
+    return [
+        str(t.get("label") or t.get("target")) for t in rows if t.get("state") not in ("stopped", "failed")
+    ]
+
+
+def _wait_for_dashboard(old_pid: object) -> dict[str, Any] | None:
+    """The new dashboard's /health once it answers from a process other than the one replaced."""
+    deadline = time.monotonic() + DASHBOARD_START_S
+    while time.monotonic() < deadline:
+        health = _health()
+        if health is not None and health.get("pid") != old_pid:
+            return health
+        time.sleep(0.25)
+    return None
+
+
+def _cmd_start(rest: Sequence[str]) -> int:
+    """Start the dashboard and scheduler, or restart them so they run the code `shed update` installed."""
+    if rest:
+        raise UsageError("Usage: shed start")
+    before = _health()
+    if before is not None and before.get("running"):
+        before = _wait_for_jobs(before)
+    tunnels = _open_tunnels() if before is not None else []
+    _, permanent = install_agent(DEFAULT_PORT)
+    after = _wait_for_dashboard(before.get("pid") if before is not None else None)
+    if after is None:
+        raise ToolError(
+            f"the agent is registered but the dashboard did not answer at {_dashboard_url()} within "
+            f"{DASHBOARD_START_S:.0f}s; see {STATE_DIR / 'launchd.log'}"
+        )
+    verb = "Restarted" if before is not None else "Started"
+    _out(f"{verb} the dashboard and scheduler (shed {after.get('version', '?')}): {_dashboard_url()}")
+    if tunnels:
+        _out(
+            f"Tunnels stopped by the restart: {', '.join(tunnels)}. Start them again at "
+            f"{_dashboard_url()}/tunnels; each gets a new public URL."
+        )
+    if not permanent:
+        _warn_not_permanent()
+    return EXIT_OK
 
 
 def _cmd_runs(rest: Sequence[str]) -> None:
@@ -411,6 +491,8 @@ def _dispatch(argv: list[str]) -> int:
             _cmd_runs(rest)
         case "ui":
             _cmd_ui(rest)
+        case "start":
+            return _cmd_start(rest)
         case "update":
             if set(rest) - {"--dry-run"}:
                 raise UsageError("Usage: shed update [--dry-run]")

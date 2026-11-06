@@ -163,4 +163,5 @@ def run_update(
     for item in linked:
         out(f"skill {item.name}: {item.status}")
     out(f"{len(linked)} skills linked into {skills_target}")
+    out("Next: run `shed start` so the dashboard and scheduler load the new code.")
     return EXIT_FAILURE if failed else EXIT_OK

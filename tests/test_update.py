@@ -76,6 +76,7 @@ def test_update_reinstalls_links_skills_and_registers_every_group(recorder: Reco
     assert removes and all(c[2].get("allow_failure") for c in removes)
     assert any("claude: registered tool-shed-research" in line for line in said)
     assert any("codex: registered tool-shed-research" in line for line in said)
+    assert said[-1] == "Next: run `shed start` so the dashboard and scheduler load the new code."
 
 
 def test_update_skips_claude_registration_when_the_cli_is_missing(

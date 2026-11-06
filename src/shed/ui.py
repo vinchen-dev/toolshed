@@ -995,7 +995,15 @@ class Handler(BaseHTTPRequestHandler):
                     FONT_FILE.read_bytes(), "font/woff2", cache="public, max-age=31536000, immutable"
                 )
             elif path == "/health":
-                self._json({"ok": True, "schedule": ui.schedule, "running": sorted(ui.running)})
+                self._json(
+                    {
+                        "ok": True,
+                        "schedule": ui.schedule,
+                        "running": sorted(ui.running),
+                        "pid": os.getpid(),
+                        "version": shed_version(),
+                    }
+                )
             elif path == "/":
                 busy = bool(ui.running)
                 jobs = ui.jobs()

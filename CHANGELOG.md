@@ -6,6 +6,18 @@ in its `TOOL` definition; bump it here when its inputs or result shape change.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-06
+
+### Added
+- `shed start`: starts the dashboard and scheduler, or restarts them so they run the code `shed update`
+  installed. It waits for a running job to finish, waits until the new dashboard answers, prints its version,
+  and names the tunnels the restart stopped. `shed update` now ends by pointing at it.
+- The dashboard's `/health` also reports its process id and shed version.
+
+### Fixed
+- `shed cron install` failed now and then with "Bootstrap failed: 5: Input/output error" because launchd
+  was still shutting down the old agent. It now waits for the old agent to exit and retries the bootstrap.
+
 ## [0.2.0] - 2026-11-06
 
 ### Added

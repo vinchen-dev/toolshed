@@ -259,10 +259,14 @@ def test_install_agent_falls_back_when_launch_agents_is_read_only(
     calls: list[list[str]] = []
 
     class Done:
-        code = 0
-        stdout = stderr = ""
+        def __init__(self, code: int = 0) -> None:
+            self.code, self.stdout, self.stderr = code, "", ""
 
-    monkeypatch.setattr(cron, "sh", lambda cmd, args=(), **kw: calls.append([cmd, *args]) or Done())
+    def fake_sh(cmd: str, args: list[str] = [], **kw: object) -> Done:  # noqa: B006
+        calls.append([cmd, *args])
+        return Done(113 if args[0] == "print" else 0)  # `launchctl print` exits 113 once the agent is gone
+
+    monkeypatch.setattr(cron, "sh", fake_sh)
     monkeypatch.setattr(cron, "shed_executable", lambda: Path("/x/bin/shed"))
     launch_agents = tmp_path / "LaunchAgents"
     launch_agents.mkdir()
@@ -280,6 +284,40 @@ def test_install_agent_falls_back_when_launch_agents_is_read_only(
     assert uninstall_agent(plist_path=plist, state_dir=state) is True
     assert agent_installed(plist_path=plist, state_dir=state) is None
     assert uninstall_agent(plist_path=plist, state_dir=state) is False
+
+
+def test_install_agent_waits_for_the_old_agent_to_exit_and_retries_a_failed_bootstrap(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls: list[str] = []
+    still_loaded = [2]  # `launchctl print` finds the old agent twice more after bootout
+    bootstrap_codes = [5, 0]  # the first bootstrap fails the way launchd does while the old agent exits
+
+    class Result:
+        def __init__(self, code: int) -> None:
+            self.code, self.stdout, self.stderr = code, "", "Bootstrap failed: 5: Input/output error"
+
+    def fake_sh(cmd: str, args: list[str] = [], **kw: object) -> Result:  # noqa: B006
+        calls.append(args[0])
+        if args[0] == "print":
+            loaded = still_loaded[0] > 0
+            still_loaded[0] -= 1
+            return Result(0 if loaded else 113)
+        if args[0] == "bootstrap":
+            return Result(bootstrap_codes.pop(0))
+        return Result(0)
+
+    monkeypatch.setattr(cron, "sh", fake_sh)
+    monkeypatch.setattr(cron, "shed_executable", lambda: Path("/x/bin/shed"))
+    monkeypatch.setattr(cron, "BOOTSTRAP_RETRY_S", 0)
+    plist = tmp_path / "LaunchAgents" / "com.tool-shed.cron.plist"
+    path, permanent = install_agent(8765, plist_path=plist, state_dir=tmp_path / "state")
+    assert (path, permanent) == (plist, True)
+    assert calls == ["bootout", "print", "print", "print", "bootstrap", "bootstrap"]
+
+    bootstrap_codes.extend([5, 5, 5])
+    with pytest.raises(ToolError, match="Input/output error"):
+        install_agent(8765, plist_path=plist, state_dir=tmp_path / "state")
 
 
 def test_agent_uses_the_global_shed_not_the_repo_venv(tmp_path: Path) -> None:
