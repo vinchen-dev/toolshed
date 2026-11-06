@@ -71,9 +71,24 @@ class FakeHealth:
         return self.count
 
 
+class FakeClock:
+    """The wall clock the health check reads; moving it forward between checks looks like a sleep."""
+
+    def __init__(self) -> None:
+        self.t = time.time()
+
+    def __call__(self) -> float:
+        return self.t
+
+
 @pytest.fixture
 def spawned() -> list[FakeProcess]:
     return []
+
+
+@pytest.fixture
+def clock() -> FakeClock:
+    return FakeClock()
 
 
 @pytest.fixture
@@ -83,7 +98,11 @@ def health() -> FakeHealth:
 
 @pytest.fixture
 def manager(
-    tmp_path: Path, spawned: list[FakeProcess], health: FakeHealth, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    spawned: list[FakeProcess],
+    health: FakeHealth,
+    clock: FakeClock,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> TunnelManager:
     def spawn(args: list[str]) -> FakeProcess:
         proc = FakeProcess(args)
@@ -97,6 +116,7 @@ def manager(
         metrics_port=lambda: 20400,
         probe=health,
         check_every=0.01,
+        clock=clock,
     )
 
 
@@ -165,6 +185,38 @@ def test_a_tunnel_that_loses_its_cloudflare_connection_is_unreachable_until_it_r
     health.count = 1
     wait_for(lambda: manager.status(row.id).state == "running")
     assert manager.status(row.id).connections == 1
+
+
+def test_an_unreachable_tunnel_names_the_sleep_and_cloudflareds_last_error_and_restarts(
+    manager: TunnelManager, spawned: list[FakeProcess], health: FakeHealth, clock: FakeClock
+) -> None:
+    row = manager.add("http://localhost:3333", label="finance")
+    manager.start(row.id)
+    health.count = 1
+    spawned[0].emit(URL_LINE)
+    wait_for(lambda: manager.status(row.id).state == "running")
+
+    clock.t += 14 * 60  # the Mac sleeps 14 minutes between two checks
+    health.count = 0
+    spawned[0].emit('2026-11-06T05:01:33Z ERR Register tunnel error from server side error="Unauthorized"')
+    wait_for(lambda: (s := manager.status(row.id)).asleep_s is not None and s.last_error is not None)
+    down = manager.status(row.id)
+    assert down.state == "unreachable" and down.asleep_s == 14 * 60
+    assert (
+        down.slept_from and down.slept_until and (down.slept_until - down.slept_from).total_seconds() == 840
+    )
+    assert down.last_error == 'Register tunnel error from server side error="Unauthorized"'
+
+    health.count = 1  # it reconnects: the sleep and the error belong to the old outage
+    wait_for(lambda: manager.status(row.id).state == "running")
+    health.count = 0
+    wait_for(lambda: manager.status(row.id).state == "unreachable")
+    again = manager.status(row.id)
+    assert (again.last_error, again.slept_from, again.asleep_s) == (None, None, None)
+
+    manager.restart(row.id)
+    assert len(spawned) == 2 and spawned[0].terminated
+    assert manager.status(row.id).state == "starting"
 
 
 def test_a_silent_health_endpoint_falls_back_to_the_url_banner(

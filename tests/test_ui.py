@@ -16,7 +16,7 @@ import pytest
 
 from shed.cron import RunRecord
 from shed.scaffold import scaffold_tool
-from shed.ui import UIServer, ago, fmt_scalar, page, plain, render_data, run_page, took, until
+from shed.ui import UIServer, ago, fmt_scalar, page, plain, render_data, run_page, took, tunnels_page, until
 from shed.version import current as shed_version
 
 
@@ -53,6 +53,9 @@ def test_dashboard_run_now_and_api(server: UIServer) -> None:
     base = server.url()
     status, body = get(f"{base}/")
     assert status == 200 and "never run" in body and 'href="/jobs/echo"' in body
+    badge = f'<span class="version" id="version" title="shed version">v{shed_version()}</span>'
+    assert f"tool-shed</a>{badge}<a " in body  # beside the brand, where people look for a version
+    assert "getElementById('version')" in body  # the refresh keeps it current after `shed start`
     status, payload = get(f"{base}/health")
     assert json.loads(payload) == {
         "ok": True,
@@ -320,7 +323,9 @@ def test_tunnels_page_adds_starts_shows_the_public_url_and_stops(tmp_path: Path)
         html = get(f"{base}/tunnels")[1]
         assert "no Cloudflare connection since" in html and "cloudflared is reconnecting" in html
         assert 'data-copy="https://neat-tunnel-example.trycloudflare.com"' in html
-        assert ">stop</button>" in html
+        assert ">stop</button>" in html and ">restart</button>" in html
+        assert post_form(f"{base}/tunnels/{api['tunnels'][0]['id']}/restart") == (303, "/tunnels")
+        assert len(spawned) == 2 and spawned[0].returncode == -15
 
         assert post_form(f"{base}/tunnels/{tunnel_id}/stop")[0] == 303
         assert "stopped" in get(f"{base}/tunnels")[1] and spawned[0].returncode == -15
@@ -360,3 +365,37 @@ def test_tunnel_to_the_dashboard_itself_is_flagged_and_install_button_shows_when
         assert ("Install with Homebrew" in html) or ("Homebrew is missing" in html)
     finally:
         srv.stop()
+
+
+def test_an_unreachable_tunnel_row_says_the_mac_slept_and_shows_cloudflareds_error() -> None:
+    from shed.tunnels import TunnelStatus
+
+    at = datetime(2026, 11, 6, 13, 1, 33)
+    row = TunnelStatus(
+        id="5a4f1bd6",
+        target="http://localhost:3333",
+        label="finance",
+        state="unreachable",
+        public_url="https://asia-hammer-packard-awareness.trycloudflare.com",
+        since=at,
+        connections=0,
+        last_error='Register tunnel error from server side error="Unauthorized"',
+        slept_from=datetime(2026, 11, 6, 12, 47, 37),
+        slept_until=datetime(2026, 11, 6, 13, 1, 27),
+        asleep_s=830,
+    )
+
+    class Rows:
+        def install_state(self) -> str:
+            return "installed"
+
+        def install_error(self) -> None:
+            return None
+
+        def statuses(self) -> list[TunnelStatus]:
+            return [row]
+
+    html = tunnels_page(Rows(), 8765, at)  # type: ignore[arg-type]
+    assert "the Mac was asleep for 14 min, between 12:47 and 13:01" in html
+    assert "cloudflared: Register tunnel error from server side error=&quot;Unauthorized&quot;" in html
+    assert 'action="/tunnels/5a4f1bd6/restart"' in html

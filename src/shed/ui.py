@@ -115,8 +115,10 @@ nav a { display: inline-flex; align-items: center; color: var(--muted); text-dec
         border-bottom: 2px solid transparent; transition: color .15s, border-color .15s; }
 nav a:hover { color: var(--text); }
 nav a[aria-current] { color: var(--text); border-bottom-color: var(--accent); }
-nav .brand { color: var(--text); font-weight: 600; font-size: 14px; gap: 8px; padding-left: 0; margin-right: var(--s3); border-bottom: 0; letter-spacing: -.01em; }
+nav .brand { color: var(--text); font-weight: 600; font-size: 14px; gap: 8px; padding-left: 0; margin-right: 0; border-bottom: 0; letter-spacing: -.01em; }
 nav .brand svg { width: 18px; height: 18px; }
+nav .version { align-self: center; margin-right: var(--s3); padding: 1px 8px; border: 1px solid var(--line); border-radius: 999px;
+               font-size: 11.5px; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
 nav .right { margin-left: auto; display: inline-flex; align-items: center; gap: var(--s3); color: var(--muted); font-size: 12.5px; font-variant-numeric: tabular-nums; }
 button.theme { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; min-height: 0; padding: 0; color: var(--muted); }
 button.theme:hover { color: var(--text); }
@@ -128,7 +130,7 @@ button.theme:hover { color: var(--text); }
 .strip.running .dot { background: var(--warn); color: var(--warn); animation: pulse 1.2s ease-in-out infinite; }
 .strip.fail b { color: var(--fail); }
 @media (max-width: 640px) { main { padding: var(--s3) var(--s4) var(--s6); } nav, .strip { padding-left: var(--s4); padding-right: var(--s4); }
-                            nav { min-height: 44px; } nav a { padding: 0 var(--s2); } nav .brand { margin-right: 0; }
+                            nav { min-height: 44px; } nav a { padding: 0 var(--s2); } nav .version { margin-right: var(--s1); }
                             nav .right { margin-left: 0; width: 100%; padding: 6px 0 8px; }
                             .strip { font-size: 12.5px; gap: var(--s1) var(--s3); } .strip b { flex-basis: calc(100% - 20px); } .scroll { max-height: none; } }
 h1 { font-size: 18px; font-weight: 600; letter-spacing: -.012em; margin: var(--s2) 0 var(--s1); }
@@ -230,6 +232,8 @@ async function refresh() {
     document.querySelectorAll('#main details').forEach((x, i) => { if (open[i] !== undefined) x.open = open[i]; });
     const right = d.querySelector('nav .right');
     if (right) document.querySelector('nav .right').innerHTML = right.innerHTML;
+    const version = d.getElementById('version');
+    if (version && document.getElementById('version')) document.getElementById('version').textContent = version.textContent;
     const strip = d.getElementById('strip');
     if (strip && document.getElementById('strip')) document.getElementById('strip').outerHTML = strip.outerHTML;
   } catch (e) {}
@@ -327,6 +331,14 @@ def took(ms: int) -> str:
     if ms < 90_000:
         return f"{ms / 1000:.1f} s"
     return f"{ms // 60000} min {round(ms % 60000 / 1000)} s"
+
+
+def span(seconds: int) -> str:
+    """A stretch of time in words: "under a minute", "14 min", "2 h 05 min"."""
+    if seconds < 60:
+        return "under a minute"
+    minutes = round(seconds / 60)
+    return f"{minutes} min" if minutes < 60 else f"{minutes // 60} h {minutes % 60:02d} min"
 
 
 def pill(kind: str, text: str) -> str:
@@ -493,10 +505,11 @@ def page(
         '<meta name="viewport" content="width=device-width, initial-scale=1">\n'
         '<link rel="icon" href="/favicon.svg" type="image/svg+xml">\n'
         f"<title>{esc(title)} - tool-shed</title>\n<script>{_THEME_BOOT}</script>\n<style>{_STYLE}</style>\n</head>\n<body>\n"
-        f'<nav><a class="brand" href="/">{FAVICON}tool-shed</a><a href="/">Jobs</a><a href="/tools">Tools</a>'
+        f'<nav><a class="brand" href="/">{FAVICON}tool-shed</a>'
+        f'<span class="version" id="version" title="shed version">v{esc(shed_version())}</span>'
+        '<a href="/">Jobs</a><a href="/tools">Tools</a>'
         f'<a href="/tunnels">Tunnels</a>{links}'
         f'<span class="right">{sched}<span>refreshed {now:%H:%M:%S}, every {refresh_s} s</span>'
-        f'<span class="muted" title="shed version">v{esc(shed_version())}</span>'
         f'<button class="theme" type="button" aria-label="Switch theme" title="Theme: system">{THEME_ICON}</button></span></nav>\n'
         f'{strip}<main id="main">\n{body}\n</main>\n<script>{_SCRIPT % (refresh_s * 1000)}</script>\n</body>\n</html>\n'
     )
@@ -778,10 +791,16 @@ def tunnels_page(
                 "</button>"
             )
             if t.state == "unreachable":
-                state = pill("fail", "unreachable") + (
-                    f" <span class=muted>no Cloudflare connection since {esc(when(t.since))}, "
-                    "cloudflared is reconnecting</span>"
-                )
+                why = [f"no Cloudflare connection since {esc(when(t.since))}, cloudflared is reconnecting"]
+                if t.slept_from and t.slept_until and t.asleep_s is not None:
+                    why.append(
+                        f"Since it was last connected the Mac was asleep for {span(t.asleep_s)}, between "
+                        f"{t.slept_from:%H:%M} and {t.slept_until:%H:%M}. After a long sleep Cloudflare may not "
+                        "take the tunnel back; restart it for a new URL."
+                    )
+                if t.last_error:
+                    why.append(f"cloudflared: {esc(t.last_error)}")
+                state = pill("fail", "unreachable") + f" <span class=muted>{'<br>'.join(why)}</span>"
             else:
                 unknown = ", health check not answering" if t.connections is None else ""
                 state = (
@@ -799,7 +818,13 @@ def tunnels_page(
         else:
             public, state = "-", pill("off", "stopped")
         action = "stop" if t.state in ("running", "starting", "unreachable") else "start"
-        actions = (
+        restart = (
+            f'<form method="post" action="/tunnels/{t.id}/restart" style="display:inline">'
+            '<button class="primary" type="submit" title="new quick tunnel, new URL">restart</button></form> '
+            if t.state == "unreachable"
+            else ""
+        )
+        actions = restart + (
             f'<form method="post" action="/tunnels/{t.id}/{action}" style="display:inline">'
             f'<button type="submit">{action}</button></form> '
             f'<form method="post" action="/tunnels/{t.id}/remove" style="display:inline">'
@@ -923,7 +948,7 @@ class UIServer(ThreadingHTTPServer):
 _JOB = re.compile(r"^/jobs/([^/]+)$")
 _RUN = re.compile(r"^/jobs/([^/]+)/runs/([^/]+)$")
 _RUN_NOW = re.compile(r"^/jobs/([^/]+)/run$")
-_TUNNEL_ACTION = re.compile(r"^/tunnels/([0-9a-f]+)/(start|stop|remove)$")
+_TUNNEL_ACTION = re.compile(r"^/tunnels/([0-9a-f]+)/(start|stop|restart|remove)$")
 _VIEW = re.compile(r"^/view/([^/]+)$")
 _API_LATEST = re.compile(r"^/api/jobs/([^/]+)/latest$")
 _API_RUNS = re.compile(r"^/api/jobs/([^/]+)/runs$")
@@ -1091,6 +1116,8 @@ class Handler(BaseHTTPRequestHandler):
                     ui.tunnels.start(tunnel_id)
                 elif action == "stop":
                     ui.tunnels.stop(tunnel_id)
+                elif action == "restart":
+                    ui.tunnels.restart(tunnel_id)
                 else:
                     ui.tunnels.remove(tunnel_id)
             else:

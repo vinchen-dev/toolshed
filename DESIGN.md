@@ -371,7 +371,8 @@ Quiet, precise, product-grade; every control looks like it belongs in a Mac app'
 
 ### Navigation
 - **Style:** sticky 48px bar (44px on phones), blurred surface at 86%, hairline bottom border; content aligned to the 1440px column.
-- **Brand:** 18px house mark + "tool-shed" at 14px/600, -0.01em, 8px gap, 12px right margin, no underline.
+- **Brand:** 18px house mark + "tool-shed" at 14px/600, -0.01em, 8px gap, no underline.
+- **Version badge:** the shed version (`v0.3.0`) right after the brand, pill-shaped like a status chip but neutral: hairline border, muted 11.5px tabular text, no dot, 12px right margin (4px on phones). The refresh script updates it, so an open tab shows the new version after `shed start`.
 - **Tabs:** muted text, `0 12px` padding, stretch to full height, 2px transparent bottom border. Hover: ink. Current (`aria-current="page"`, set by script from the path): ink text with an indigo 2px bottom border.
 - **Right cluster:** scheduler pill, "refreshed HH:MM:SS, every N s" in 12.5px muted tabular, theme button; wraps to its own row under 640px.
 

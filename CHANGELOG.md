@@ -6,6 +6,18 @@ in its `TOOL` definition; bump it here when its inputs or result shape change.
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-11-06
+
+### Added
+- Tunnels page: an unreachable row says why. It reports how long the Mac slept since the tunnel was last
+  connected, detected from a wall-clock jump between two health checks, and shows cloudflared's latest
+  error. A restart button makes a new quick tunnel in one click. A sleeping Mac drops the connection, and
+  after a long sleep Cloudflare may refuse to take the quick tunnel back.
+
+### Changed
+- Dashboard: the shed version is a badge beside the "tool-shed" name instead of grey text at the far right,
+  and the page's auto-refresh keeps it current after `shed start`.
+
 ## [0.3.0] - 2026-11-06
 
 ### Added

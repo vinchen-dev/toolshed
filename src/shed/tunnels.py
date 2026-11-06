@@ -13,6 +13,7 @@ import secrets
 import socket
 import subprocess
 import threading
+import time
 from collections import deque
 from collections.abc import Callable
 from datetime import datetime
@@ -28,12 +29,15 @@ from shed.lib.manila import MANILA
 from shed.lib.shell import sh
 
 PUBLIC_URL = re.compile(r"https://[a-z0-9-]+\.trycloudflare\.com")
+ERROR_LINE = re.compile(r"^\S+\s+ERR\s+(?P<message>.+)$")
 LOCAL_HOSTS = ("localhost", "127.0.0.1", "0.0.0.0", "::1", "[::1]", "host.docker.internal")
 State = Literal["stopped", "starting", "running", "unreachable", "failed"]
 InstallState = Literal["installed", "missing", "installing", "failed", "no-brew"]
 CHECK_EVERY_S = 3.0
 SILENT_CHECKS = 5
 """Unanswered health checks after the URL banner before the banner alone counts as running."""
+SLEEP_GAP_S = 30.0
+"""A wall-clock jump this much longer than the check interval means the Mac slept between two checks."""
 
 
 class TunnelRow(BaseModel):
@@ -54,6 +58,12 @@ class TunnelStatus(BaseModel):
     connections: int | None = None
     """Cloudflare connections by cloudflared's own count; None when its ready endpoint has not answered."""
     error: str | None = None
+    last_error: str | None = None
+    """When unreachable: cloudflared's latest ERR line since the connection was last up."""
+    slept_from: datetime | None = None
+    slept_until: datetime | None = None
+    asleep_s: int | None = None
+    """When unreachable: how long the Mac slept between those times, since the connection was last up."""
 
 
 class _Live:
@@ -74,6 +84,17 @@ class _Live:
         """When the connection count last went between zero and non-zero."""
         self.silent_checks = 0
         self.stopping = threading.Event()
+        self.last_error: str | None = None
+        self.up_at: float | None = None
+        """Wall clock of the last check that found a Cloudflare connection."""
+        self.sleep: tuple[float, float, float] | None = None
+        """(first sleep start, last wake, seconds asleep) for the sleeps since `up_at`."""
+
+    def note_sleep(self, start: float, end: float) -> None:
+        if self.sleep is None or (self.up_at is not None and self.sleep[1] < self.up_at):
+            self.sleep = (start, end, end - start)
+        else:
+            self.sleep = (self.sleep[0], end, self.sleep[2] + end - start)
 
 
 def spawn_cloudflared(args: list[str]) -> Any:
@@ -120,6 +141,10 @@ def now() -> datetime:
     return datetime.now(MANILA).replace(microsecond=0)
 
 
+def _stamp(wall: float) -> datetime:
+    return datetime.fromtimestamp(wall, MANILA).replace(microsecond=0)
+
+
 class TunnelManager:
     def __init__(
         self,
@@ -130,6 +155,7 @@ class TunnelManager:
         metrics_port: Callable[[], int] = free_port,
         probe: Callable[[int], int | None] = ready_connections,
         check_every: float = CHECK_EVERY_S,
+        clock: Callable[[], float] = time.time,
     ) -> None:
         self.state_file = state_file
         self._spawn = spawn
@@ -137,6 +163,7 @@ class TunnelManager:
         self._metrics_port = metrics_port
         self._probe = probe
         self._check_every = check_every
+        self._clock = clock
         self._rows: list[TunnelRow] = self._load()
         self._live: dict[str, _Live] = {}
         self._lock = threading.Lock()
@@ -222,13 +249,21 @@ class TunnelManager:
             live.tail.append(text)
             if live.public_url is None and (m := PUBLIC_URL.search(text)):
                 live.public_url, live.since = m.group(0), now()
+            if m := ERROR_LINE.match(text):
+                live.last_error = m.group("message")[:300]
         if live.public_url is None and live.error is None:
             live.error = _last(live) or "cloudflared exited before announcing a URL"
         live.done = True
 
     def _watch(self, live: _Live) -> None:
-        """Poll the ready endpoint once the URL is out, until cloudflared exits or the tunnel is stopped."""
+        """Poll the ready endpoint once the URL is out, until cloudflared exits or the tunnel is stopped.
+        A sleeping process cannot see the sleep, but the wall clock jumps between two checks."""
+        last = self._clock()
         while not live.stopping.wait(self._check_every) and not live.done:
+            wall = self._clock()
+            if wall - last > self._check_every + SLEEP_GAP_S:
+                live.note_sleep(last, wall)
+            last = wall
             if live.public_url is None:
                 continue
             count = self._probe(live.metrics_port)
@@ -237,8 +272,12 @@ class TunnelManager:
                 continue
             if live.connections is None or (live.connections > 0) != (count > 0):
                 live.changed = now()
+                if count > 0:
+                    live.last_error = None
             live.connections = count
             live.connected_once = live.connected_once or count > 0
+            if count > 0:
+                live.up_at = wall
 
     def stop(self, tunnel_id: str) -> None:
         with self._lock:
@@ -252,6 +291,11 @@ class TunnelManager:
                 live.process.wait(timeout=5)
             except Exception:
                 live.process.kill()
+
+    def restart(self, tunnel_id: str) -> None:
+        """Stop and start again, which makes a new quick tunnel with a new public URL."""
+        self.stop(tunnel_id)
+        self.start(tunnel_id)
 
     def stop_all(self) -> None:
         for tunnel_id in list(self._live):
@@ -276,8 +320,17 @@ class TunnelManager:
             return TunnelStatus(**base, state="running", public_url=url, since=live.since)
         if count == 0 and not live.connected_once:
             return TunnelStatus(**base, state="starting", public_url=url, connections=0)
-        state: State = "running" if count > 0 else "unreachable"
-        return TunnelStatus(**base, state=state, public_url=url, since=live.changed, connections=count)
+        if count > 0:
+            return TunnelStatus(
+                **base, state="running", public_url=url, since=live.changed, connections=count
+            )
+        why: dict[str, Any] = {"last_error": live.last_error}
+        if live.sleep is not None and (live.up_at is None or live.sleep[1] > live.up_at):
+            start, end, asleep = live.sleep
+            why |= {"slept_from": _stamp(start), "slept_until": _stamp(end), "asleep_s": round(asleep)}
+        return TunnelStatus(
+            **base, state="unreachable", public_url=url, since=live.changed, connections=0, **why
+        )
 
     def statuses(self) -> list[TunnelStatus]:
         return [self.status(r.id) for r in self._rows]
