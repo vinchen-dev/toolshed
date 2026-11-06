@@ -83,10 +83,15 @@ AGENTS: dict[str, Callable[[str, str], tuple[Step, Step]]] = {
 """Agent CLIs that can hold an MCP server registration, and how each adds and removes one."""
 
 
-def plan(tools_dir: Path = TOOLS_DIR, *, browser: bool | None = None) -> list[Step]:
-    """The plain commands `shed update` runs, in order. `browser` defaults to Playwright being installed."""
+def plan(
+    tools_dir: Path = TOOLS_DIR, *, browser: bool | None = None, cloudflared: bool | None = None
+) -> list[Step]:
+    """The plain commands `shed update` runs, in order. `browser` defaults to Playwright being installed,
+    `cloudflared` to it being missing while Homebrew is present (the dashboard's Tunnels page needs it)."""
     if browser is None:
         browser = importlib.util.find_spec("playwright") is not None
+    if cloudflared is None:
+        cloudflared = which("cloudflared") is None and which("brew") is not None
     steps = [
         Step("sync the project venv", "uv", ("sync",)),
         Step(
@@ -98,6 +103,10 @@ def plan(tools_dir: Path = TOOLS_DIR, *, browser: bool | None = None) -> list[St
     if browser:
         steps.append(
             Step("install Playwright's Chromium", "uv", ("run", "playwright", "install", "chromium"))
+        )
+    if cloudflared:
+        steps.append(
+            Step("install cloudflared for the Tunnels page", "brew", ("install", "cloudflared"), True)
         )
     return steps
 
@@ -119,6 +128,7 @@ def run_update(
     skills_dir: Path = SKILLS_DIR,
     skills_target: Path = CLAUDE_SKILLS_DIR,
     browser: bool | None = None,
+    cloudflared: bool | None = None,
     dry_run: bool = False,
     out: Callable[[str], None] = print,
 ) -> int:
@@ -127,7 +137,7 @@ def run_update(
     for agent in AGENTS:
         if agent not in present:
             out(f"{agent} CLI not found on PATH: its MCP registration is skipped (install it, then rerun)")
-    steps = plan(tools_dir, browser=browser)
+    steps = plan(tools_dir, browser=browser, cloudflared=cloudflared)
     wanted = registrations(tools_dir, present)
     if dry_run:
         for step in steps:

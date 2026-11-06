@@ -28,6 +28,7 @@ from .incidents import (
     Format,
     Incident,
     Sort,
+    State,
     build_incidents,
     dur,
     event_lines,
@@ -37,6 +38,8 @@ from .incidents import (
     render_md,
     render_plain,
     render_side,
+    session_created,
+    session_state,
     sort_incidents,
 )
 
@@ -164,6 +167,13 @@ class EnvReport(BaseModel):
     failed_attempts: int = 0
     failed_step_mix: dict[str, int] = {}
     scraper_stops: list[datetime] = []
+    state: State = "unknown"
+    """Session state after the last event that settles it: up after a saved login, a retry recovery or a
+    page visit; down after an invalidation, a scraper stop, or failed relogins with no live session."""
+    state_since: datetime | None = None
+    """When the current state began, Manila time."""
+    session_created: datetime | None = None
+    """created_at of the last saved login, Manila time: the age of the session in use while up."""
     events: list[EventLine] = []
     """Filled in cron mode only."""
 
@@ -278,6 +288,9 @@ def run(params: Input, ctx: ToolContext) -> Report:
             report.until = max(e.time for e in events)
         if not events:
             report.error = EMPTY_PULL
+        else:
+            report.state, report.state_since = session_state(events)
+            report.session_created = session_created(events)
         if events and events_since:
             report.events = event_lines(events, events_since)
         if events and table:
@@ -311,11 +324,28 @@ def run(params: Input, ctx: ToolContext) -> Report:
     )
 
 
+def clock(value: datetime, ref: datetime) -> str:
+    """A time of day, with its date when it is not the same day as `ref`."""
+    return value.strftime("%H:%M:%S" if value.date() == ref.date() else "%m-%d %H:%M:%S")
+
+
+def status(r: EnvReport) -> str:
+    """One sentence on the session now: logged in and how old the session is, or down and for how long."""
+    if r.state_since is None:
+        return "No session state in the pull"
+    since = clock(r.state_since, r.until)
+    if r.state == "down":
+        return f"Down since {since} ({dur((r.until - r.state_since).total_seconds())} so far)"
+    if r.session_created is None:
+        return f"Logged in since {since}, session age unknown (no login saved in the pull)"
+    return f"Logged in since {since}, session life {dur((r.until - r.session_created).total_seconds())}"
+
+
 def headline(r: EnvReport) -> str:
     window = dur((r.until - r.since).total_seconds())
     stops = ", ".join(s.strftime("%m-%d %H:%M") for s in r.scraper_stops)
     return (
-        f"{len(r.incidents)} incidents, {dur(r.total_outage_seconds)} down "
+        f"{status(r)}. {len(r.incidents)} incidents, {dur(r.total_outage_seconds)} down "
         f"({r.downtime_percent}% of {window}), {r.failed_attempts} failed relogin attempts"
         + (f", scraper stops: {stops}" if stops else "")
     )
@@ -338,8 +368,7 @@ def render(report: Report) -> str:
         elif report.mode == "events":
             out.append(f"\n### {name} - events since {(r.events_since or r.since):%m-%d %H:%M:%S}")
             out += [f"{e.time:%m-%d %H:%M:%S}  {e.text}" for e in r.events] or ["no change"]
-            if report.full:
-                out.append(f"{headline(r)}.")
+            out.append(f"{headline(r)}." if report.full else f"{status(r)}.")
         elif report.format == "box":
             boxes.append((f"\n**{name}:** {headline(r)}.", r.incidents))
         elif report.format == "side":
@@ -382,4 +411,5 @@ TOOL = Tool(
         "shed bdo-incidents --env both --events-hours 0.25 --full  # what the dashboard job runs",
         "shed bdo-incidents --raw qat=saved-qat.txt --json",
     ),
+    version="0.2.0",
 )

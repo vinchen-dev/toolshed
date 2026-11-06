@@ -159,3 +159,29 @@ def test_dry_run_prints_the_plan_without_running_anything(
     assert "claude mcp add --scope user tool-shed -- shed mcp --group base" in out
     assert "codex mcp add tool-shed -- shed mcp --group base" in out
     assert recorder.calls == []
+
+
+def test_update_installs_cloudflared_only_when_missing_and_brew_is_present(
+    recorder: Recorder, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        update, "which", lambda name: None if name == "cloudflared" else f"/opt/homebrew/bin/{name}"
+    )
+    update.run_update(
+        tools_dir=tools_tree(tmp_path, "base"),
+        skills_dir=tmp_path / "skills",
+        skills_target=tmp_path / "s",
+        browser=False,
+        out=lambda _: None,
+    )
+    assert "brew install cloudflared" in recorder.lines()
+    recorder.calls.clear()
+    monkeypatch.setattr(update, "which", lambda name: f"/opt/homebrew/bin/{name}")
+    update.run_update(
+        tools_dir=tools_tree(tmp_path / "again", "base"),
+        skills_dir=tmp_path / "skills",
+        skills_target=tmp_path / "s",
+        browser=False,
+        out=lambda _: None,
+    )
+    assert "brew install cloudflared" not in recorder.lines()

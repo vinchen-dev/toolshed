@@ -11,6 +11,7 @@ from shed import ToolContext, ToolError
 from shed.registry import load_tool, load_tool_module
 
 module = load_tool_module("bdo-incidents")
+incidents = importlib.import_module(f"{module.__package__}.incidents")
 sls_module = load_tool_module("sls-logs")
 TOOL = load_tool("bdo-incidents")
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -78,6 +79,11 @@ def test_incident_table_for_qat() -> None:
     assert (env.total_outage_seconds, env.downtime_percent, env.failed_attempts) == (1538, 11.0, 3)
     assert env.failed_step_mix == {"account selector 25s": 1, "30s wait": 1, "login form 30s": 1}
     assert [s.strftime("%H:%M") for s in env.scraper_stops] == ["11:52"]
+    assert (env.state, env.state_since, env.session_created) == (
+        "down",
+        datetime(2026, 10, 25, 11, 30, 1),
+        datetime(2026, 10, 25, 10, 8, 1),
+    )
 
 
 def test_window_filters_sort_and_top() -> None:
@@ -123,7 +129,7 @@ def test_events_mode_reports_no_change() -> None:
     report = TOOL.run(TOOL.input(raw=raw("qat"), events_hours=0.05), CTX)
     assert report.envs[0].events == []
     assert TOOL.render is not None
-    assert TOOL.render(report).rstrip().endswith("no change")
+    assert TOOL.render(report).rstrip().endswith("no change\nDown since 11:30:01 (21m59s so far).")
 
 
 def test_box_render_shares_widths_and_stars_long_outages() -> None:
@@ -132,10 +138,13 @@ def test_box_render_shares_widths_and_stars_long_outages() -> None:
     text = TOOL.render(report)
     assert text.startswith("now 2026-10-25 12:00:00 Manila")
     assert (
-        "**QAT:** 3 incidents, 25m38s down (11.0% of 3h52m00s), 3 failed relogin attempts, "
-        "scraper stops: 10-25 11:52."
+        "**QAT:** Down since 11:30:01 (21m59s so far). 3 incidents, 25m38s down (11.0% of 3h52m00s), "
+        "3 failed relogin attempts, scraper stops: 10-25 11:52."
     ) in text
-    assert "**PROD:** 1 incidents, 7m00s down (5.3% of 2h12m30s), 1 failed relogin attempts." in text
+    assert (
+        "**PROD:** Logged in since 10:12:30, session life 0m00s. 1 incidents, 7m00s down "
+        "(5.3% of 2h12m30s), 1 failed relogin attempts."
+    ) in text
     assert "21m59s*" in text and "3m00s " in text
     tables = [line for line in text.splitlines() if line.startswith("┌")]
     assert len(tables) == 2 and len(set(tables)) == 1  # identical top borders means identical widths
@@ -166,7 +175,7 @@ def test_plain_and_md_renders(fmt: str, needle: str) -> None:
     report = TOOL.run(TOOL.input(raw=raw("qat"), hours=4, format=fmt), CTX)
     assert TOOL.render is not None
     text = TOOL.render(report)
-    assert "### QAT - 3 incidents, 25m38s down" in text
+    assert "### QAT - Down since 11:30:01 (21m59s so far). 3 incidents, 25m38s down" in text
     assert needle in text
 
 
@@ -354,3 +363,43 @@ def test_bad_inputs_are_validation_errors(kwargs: dict[str, Any], match: str) ->
 def test_where_labels_failure_reasons(reason: str, label: str) -> None:
     incidents = importlib.import_module(f"{module.__package__}.incidents")
     assert incidents.where(reason) == label
+
+
+def test_session_state_follows_the_last_settling_event() -> None:
+    def at(minute: int, kind: str) -> Any:
+        return incidents.Event(time=datetime(2026, 10, 25, 9, minute), kind=kind)
+
+    t = lambda minute: datetime(2026, 10, 25, 9, minute)  # noqa: E731
+    assert incidents.session_state([]) == ("unknown", None)
+    assert incidents.session_state([at(1, "LOC"), at(2, "STALE")]) == ("unknown", None)
+    # failed relogins with no live session are an outage even before a flag is seen
+    assert incidents.session_state([at(1, "FAIL"), at(2, "FAIL")]) == ("down", t(1))
+    # a retry reactivates the session; the manager's background relogin failures do not undo that
+    up = [at(1, "FLAG"), at(2, "RETRY_OK"), at(3, "FAIL"), at(4, "FAIL")]
+    assert incidents.session_state(up) == ("up", t(2))
+    assert incidents.session_state([*up, at(5, "FLAG"), at(6, "FAIL")]) == ("down", t(5))
+    assert incidents.session_state([*up, at(5, "FLAG"), at(6, "FAIL"), at(7, "SAVED")]) == ("up", t(7))
+    assert incidents.session_state([at(1, "SAVED"), at(2, "VISIT"), at(3, "SCRAPER_STOP")]) == ("down", t(3))
+    prod = TOOL.run(TOOL.input(raw=raw("prod"), env="prod", hours=4), CTX).envs[0]
+    assert (prod.state, prod.state_since, prod.session_created) == (
+        "up",
+        datetime(2026, 10, 25, 10, 12, 30),
+        datetime(2026, 10, 25, 10, 12, 30),
+    )
+
+
+def test_trailing_incident_stays_open_when_trouble_follows_its_retry() -> None:
+    def at(minute: int, kind: str, **extra: Any) -> Any:
+        return incidents.Event(time=datetime(2026, 10, 25, 9, minute), kind=kind, **extra)
+
+    now = datetime(2026, 10, 25, 10, 0)
+    fail = {"detail": "login page 40s"}
+    events = [at(0, "FLAG"), at(1, "RETRY_OK"), at(3, "FAIL", **fail), at(20, "FLAG"), at(23, "FAIL", **fail)]
+    (row,) = incidents.build_incidents(events, now)
+    assert row.open and row.retry_recovered == "Yes, then failed again"
+    assert (row.attempts, row.saved, row.outage, row.failed_count) == ("open", "open", "1h00m00s", 2)
+    # a later retry with nothing failing after it does recover; the row keeps the failed attempts
+    (row,) = incidents.build_incidents([*events, at(30, "FLAG"), at(31, "RETRY_OK")], now)
+    assert not row.open and row.retry_recovered == "Yes, then failed again"
+    assert (row.attempts, row.saved) == ("2 / 2 (2x login page 40s)", "n/a (retry fixed it)")
+    assert (row.outage, row.failed_count) == ("31m00s", 2)

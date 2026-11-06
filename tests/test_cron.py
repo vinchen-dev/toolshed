@@ -280,3 +280,18 @@ def test_install_agent_falls_back_when_launch_agents_is_read_only(
     assert uninstall_agent(plist_path=plist, state_dir=state) is True
     assert agent_installed(plist_path=plist, state_dir=state) is None
     assert uninstall_agent(plist_path=plist, state_dir=state) is False
+
+
+def test_agent_uses_the_global_shed_not_the_repo_venv(tmp_path: Path) -> None:
+    from shed.cron import shed_executable
+    from shed.registry import SHED_ROOT
+
+    venv_bin = SHED_ROOT / ".venv" / "bin"
+    global_bin = tmp_path / "local-bin"
+    global_bin.mkdir()
+    (global_bin / "shed").write_text("#!/bin/sh\n")
+    (global_bin / "shed").chmod(0o755)
+    path = os.pathsep.join([str(venv_bin), str(global_bin)])
+    assert shed_executable(path) == global_bin / "shed"
+    with pytest.raises(ToolError, match="global `shed`"):
+        shed_executable(str(venv_bin))

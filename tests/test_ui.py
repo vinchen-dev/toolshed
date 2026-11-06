@@ -4,10 +4,12 @@ import json
 import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from collections.abc import Callable, Iterator
 from datetime import datetime, timedelta
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -203,3 +205,151 @@ def test_pages_show_the_shed_version_and_a_run_shows_the_versions_that_produced_
     assert "echo-x</b> v0.2.0" in html and "shed <b>v1.4.0</b>" in html
     old = record.model_copy(update={"version": None, "tool_version": None})  # a record from before versioning
     assert "shed <b>" not in run_page("j", "x", old, now)
+
+
+class FakeTunnelProcess:
+    def __init__(self, args: list[str]) -> None:
+        self.args, self.lines, self.returncode = args, [], None
+        self.ready, self.ended = threading.Event(), threading.Event()
+
+    def emit(self, line: str) -> None:
+        self.lines.append(line)
+        self.ready.set()
+
+    def readline(self) -> str:
+        while True:
+            self.ready.wait()
+            if self.lines:
+                return self.lines.pop(0) + "\n"
+            if self.ended.is_set():
+                return ""
+            self.ready.clear()
+
+    def poll(self) -> int | None:
+        return self.returncode
+
+    def terminate(self) -> None:
+        self.returncode = -15
+        self.ended.set()
+        self.ready.set()
+
+    kill = terminate
+
+    def wait(self, timeout: float | None = None) -> int:
+        self.ended.wait(timeout)
+        return self.returncode or 0
+
+
+def post_form(url: str, **fields: str) -> tuple[int, str]:
+    data = urllib.parse.urlencode(fields).encode()
+    req = urllib.request.Request(url, data=data, method="POST")
+    req.add_header("Content-Type", "application/x-www-form-urlencoded")
+    opener = urllib.request.build_opener(_NoRedirect())
+    try:
+        with opener.open(req, timeout=5) as resp:
+            return resp.status, resp.headers.get("Location", "")
+    except urllib.error.HTTPError as exc:
+        return exc.code, exc.headers.get("Location", "")
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *args: Any, **kwargs: Any) -> None:
+        return None
+
+
+def test_tunnels_page_adds_starts_shows_the_public_url_and_stops(tmp_path: Path) -> None:
+    from shed.tunnels import TunnelManager
+
+    spawned: list[FakeTunnelProcess] = []
+
+    def spawn(args: list[str]) -> FakeTunnelProcess:
+        proc = FakeTunnelProcess(args)
+        spawned.append(proc)
+        return proc
+
+    connections = [1]
+    manager = TunnelManager(
+        tmp_path / "tunnels.json",
+        spawn=spawn,
+        binary=lambda: "/opt/homebrew/bin/cloudflared",
+        probe=lambda port: connections[0],
+        check_every=0.01,
+    )
+    tools = tmp_path / "tools"
+    tools.mkdir()
+    cron = tmp_path / "cron.toml"
+    cron.write_text("")
+    srv = UIServer(
+        ("127.0.0.1", 0), cron_file=cron, state_dir=tmp_path / "state", tools_dir=tools, tunnels=manager
+    )
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    base = srv.url()
+    try:
+        status, html = get(f"{base}/tunnels")
+        assert status == 200 and 'href="/tunnels"' in html and "No tunnels yet" in html
+
+        assert post_form(f"{base}/tunnels", target="http://localhost:8000", label="dev", start="1") == (
+            303,
+            "/tunnels",
+        )
+        assert spawned[0].args[-1] == "http://localhost:8000"
+        html = get(f"{base}/tunnels")[1]
+        assert "<b>dev</b>" in html and "waiting for cloudflared" in html
+
+        spawned[0].emit("INF |  https://neat-tunnel-example.trycloudflare.com  |")
+        wait_for(lambda: '<span class="pill ok">running</span>' in get(f"{base}/tunnels")[1])
+        html = get(f"{base}/tunnels")[1]
+        assert 'data-copy="https://neat-tunnel-example.trycloudflare.com"' in html
+        assert 'href="https://neat-tunnel-example.trycloudflare.com"' in html
+        api = json.loads(get(f"{base}/api/tunnels")[1])
+        assert api["cloudflared"] == "installed" and api["tunnels"][0]["public_url"].endswith(
+            "trycloudflare.com"
+        )
+        assert api["tunnels"][0]["connections"] == 1
+        tunnel_id = api["tunnels"][0]["id"]
+
+        connections[0] = 0
+        wait_for(lambda: '<span class="pill fail">unreachable</span>' in get(f"{base}/tunnels")[1])
+        html = get(f"{base}/tunnels")[1]
+        assert "no Cloudflare connection since" in html and "cloudflared is reconnecting" in html
+        assert 'data-copy="https://neat-tunnel-example.trycloudflare.com"' in html
+        assert ">stop</button>" in html
+
+        assert post_form(f"{base}/tunnels/{tunnel_id}/stop")[0] == 303
+        assert "stopped" in get(f"{base}/tunnels")[1] and spawned[0].returncode == -15
+
+        assert post_form(f"{base}/tunnels", target="example.com")[0] == 303
+        assert "http://host:port" in get(f"{base}/tunnels")[1]  # the notice shows once
+        assert "http://host:port" not in get(f"{base}/tunnels")[1]
+
+        assert post_form(f"{base}/tunnels/{tunnel_id}/remove")[0] == 303
+        assert "No tunnels yet" in get(f"{base}/tunnels")[1]
+    finally:
+        srv.stop()
+
+
+def test_tunnel_to_the_dashboard_itself_is_flagged_and_install_button_shows_when_missing(
+    tmp_path: Path,
+) -> None:
+    from shed.tunnels import TunnelManager
+
+    manager = TunnelManager(
+        tmp_path / "tunnels.json", spawn=lambda a: FakeTunnelProcess(a), binary=lambda: None
+    )
+    tools = tmp_path / "tools"
+    tools.mkdir()
+    cron = tmp_path / "cron.toml"
+    cron.write_text("")
+    srv = UIServer(
+        ("127.0.0.1", 0), cron_file=cron, state_dir=tmp_path / "state", tools_dir=tools, tunnels=manager
+    )
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    base = srv.url()
+    try:
+        port = srv.server_address[1]
+        post_form(f"{base}/tunnels", target=f"http://127.0.0.1:{port}")
+        html = get(f"{base}/tunnels")[1]
+        assert "this dashboard, no login" in html
+        assert ("Install with Homebrew" in html) or ("Homebrew is missing" in html)
+    finally:
+        srv.stop()

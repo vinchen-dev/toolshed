@@ -6,6 +6,34 @@ in its `TOOL` definition; bump it here when its inputs or result shape change.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-06
+
+### Added
+- Dashboard `/tunnels` page: Cloudflare quick tunnels to local URLs, started and stopped from the UI, with
+  live status and a one-click copy of the public address; installs `cloudflared` via Homebrew when missing
+  (`shed update` does too). The status comes from cloudflared's own ready endpoint on a local metrics port: a
+  tunnel reads `running` only while Cloudflare holds its connection and `unreachable` (red, with the time it
+  dropped) when the connection is lost while the process is still alive.
+
+### Changed
+- `bdo-incidents` 0.2.0: each environment reports the session state (`state` up/down/unknown, `state_since`,
+  `session_created`) from the last event that settles it: a saved login, a retry recovery or a page visit
+  means up; an invalidation or a scraper stop means down; a failed relogin counts only while no session is
+  alive. Every header line starts with it (`Down since …` with the duration, or `Logged in since …, session
+  life …`), and events-only mode prints it after the events. The dashboard card is red only while the
+  session is down (and says for how long), green with the session's life while it is logged in, and labels
+  the window totals as totals.
+
+### Fixed
+- `bdo-incidents`: an incident whose retry recovery was followed by more invalidations or failed relogins
+  was closed as "retry fixed it" with the outage cut at the retry (QAT showed 0m11s down and `ok` during a
+  day-long outage). It now stays open with retry `Yes, then failed again`, and when a later retry does
+  recover it the row keeps its failed attempts.
+- `shed cron install` registers the global `shed`, never the repo's `.venv` copy that a shell inside the repo
+  puts first on PATH; launchd cannot read a venv under Desktop or Documents, so that copy failed to start.
+
+## [0.1.0] - 2026-11-04
+
 ### Added
 - `research` group: `browser-fetch` (per-site browser sessions, one-time manual login), `product-search`
   (Lazada anonymous, Shopee with a saved login, price-history dashboard page) and `social-search` (YouTube,
@@ -27,5 +55,6 @@ in its `TOOL` definition; bump it here when its inputs or result shape change.
 
 | Tool | Version | Since |
 |---|---|---|
-| api-call, git-context, log-watch, sls-logs, sls-csv, bdo-incidents, lark-approval, lark-attachments, lark-doc, lark-files | 0.1.0 | first version |
+| api-call, git-context, log-watch, sls-logs, sls-csv, lark-approval, lark-attachments, lark-doc, lark-files | 0.1.0 | first version |
+| bdo-incidents | 0.2.0 | session state in the result |
 | browser-fetch, product-search, social-search | 0.1.0 | first version |

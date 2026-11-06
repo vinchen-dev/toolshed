@@ -71,6 +71,21 @@ def test_page_shows_cards_incidents_and_timeline() -> None:
     assert '<span class="pill fail">invalidated</span>' in html
     assert '<a href="?hours=6&amp;env=both">6h</a>' in html and "<b>24h</b>" in html
     assert "2 runs kept" in html
+    # QAT lost its session at 11:30:01 and the scraper gave up; PROD runs on the login saved at 10:12:30
+    assert '<span class="pill fail">down 59 min</span>' in html
+    assert 'Down since <span title="2026-10-25 11:30:01">11:30:01 (60 min ago)</span>.' in html
+    assert 'Scraper stopped at <span title="2026-10-25 11:52:00">11:52:00 (38 min ago)</span> after' in html
+    assert (
+        "1 relogin attempt failed, last at <span" in html and "(59 min ago)</span>: login form 30s." in html
+    )
+    assert '<span class="pill ok">logged in 2 h 17 min</span>' in html
+    assert (
+        'Session life 2 h 17 min, saved at <span title="2026-10-25 10:12:30">10:12:30 (2 h ago)</span>.'
+        in html
+    )
+    assert "totals for the last 3.9 h" in html and "downtime, 11.0%" in html
+    assert "last event <span" in html and "(38 min ago)</span>: scraper stopped (20 min session wait)" in html
+    assert "Incidents <small>last 3.9 h, up to 2026-10-25 11:52:00</small>" in html
 
 
 def test_page_filters_by_env_and_window() -> None:
@@ -99,3 +114,14 @@ def test_events_only_runs_explain_the_missing_table() -> None:
     html = view.view("bdo-session", [record("2026-10-25 09:30", PAGE_NOW, full=False)], PAGE_NOW, {})
     assert "<code>full = true</code>" in html and "<th>flag</th>" not in html
     assert view.view("bdo-session", [], PAGE_NOW, {}).count("No successful run yet") == 1
+
+
+def test_cards_derive_the_state_from_the_timeline_for_older_runs() -> None:
+    old = record("2026-10-25 09:30", PAGE_NOW)
+    assert isinstance(old.result, dict)
+    for env in old.result["envs"]:
+        for key in ("state", "state_since", "session_created"):
+            del env[key]
+    html = view.view("bdo-session", [old], PAGE_NOW, {})
+    assert '<span class="pill fail">down 59 min</span>' in html
+    assert '<span class="pill ok">logged in 2 h 17 min</span>' in html  # birth taken from the SAVED event

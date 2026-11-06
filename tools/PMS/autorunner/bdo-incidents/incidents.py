@@ -7,10 +7,10 @@ from __future__ import annotations
 
 import re
 from collections import Counter
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
-from typing import Literal
+from typing import Literal, Protocol
 
 from pydantic import BaseModel
 
@@ -34,6 +34,9 @@ Kind = Literal["FLAG", "RETRY_OK", "FAIL", "SAVED", "LOC", "VISIT", "OD", "TIMER
 Format = Literal["box", "side", "plain", "md"]
 Sort = Literal["time", "outage"]
 Retry = Literal["No", "Yes", "Yes, then failed again"]
+State = Literal["up", "down", "unknown"]
+UP_KINDS = frozenset({"SAVED", "RETRY_OK", "VISIT", "OD", "TIMER"})
+DOWN_KINDS = frozenset({"FLAG", "SCRAPER_STOP"})
 
 SHORT = {
     "account selector 25s": "sel25",
@@ -96,6 +99,39 @@ class EventLine(BaseModel):
     time: datetime
     kind: Kind
     text: str
+
+
+class Timed(Protocol):
+    @property
+    def kind(self) -> str: ...
+    @property
+    def time(self) -> datetime: ...
+
+
+def session_state(events: Iterable[Timed]) -> tuple[State, datetime | None]:
+    """Whether the scraper has a working session after the last event that settles it, and since when.
+
+    A saved login, a retry recovery or a page visit means up; an invalidation or a scraper stop means
+    down. A failed relogin counts only while nothing says the session is alive, because the session
+    manager keeps retrying in the background after the scraper's own retry reactivated the session.
+    """
+    state: State = "unknown"
+    since: datetime | None = None
+    for e in events:
+        if e.kind in UP_KINDS:
+            new: State = "up"
+        elif e.kind in DOWN_KINDS or (e.kind == "FAIL" and state != "up"):
+            new = "down"
+        else:
+            continue
+        if new != state:
+            state, since = new, e.time
+    return state, since
+
+
+def session_created(events: Sequence[Event]) -> datetime | None:
+    """created_at of the last saved login, Manila time: the session in use while the state is up."""
+    return next((e.new_created_at for e in reversed(events) if e.kind == "SAVED" and e.new_created_at), None)
 
 
 def ts(text: str) -> datetime:
@@ -206,9 +242,11 @@ class _Draft:
     born: datetime | None = None
     relogin: bool = False
     last: datetime = field(init=False)
+    trouble: datetime = field(init=False)
+    """Time of the latest flag or failed relogin; a retry only ends the incident when it came after."""
 
     def __post_init__(self) -> None:
-        self.last = self.flag
+        self.last = self.trouble = self.flag
 
 
 def _life(draft: _Draft) -> str:
@@ -218,13 +256,15 @@ def _life(draft: _Draft) -> str:
 
 def _close(draft: _Draft, end: datetime, how: Literal["save", "retry"]) -> Incident:
     failed = sum(draft.fails.values())
+    steps = ", ".join(f"{n}x {w}" for w, n in draft.fails.most_common())
     if how == "save":
-        steps = ", ".join(f"{n}x {w}" for w, n in draft.fails.most_common())
         attempts = f"{failed + 1} / {failed}" + (f" ({steps})" if failed else "")
         saved = end.strftime("%H:%M:%S")
+        retry: Retry = "Yes, then failed again" if draft.retry_ok else "No"
     else:
-        attempts, saved = "0 / 0", "n/a (retry fixed it)"
-    retry: Retry = ("Yes, then failed again" if how == "save" else "Yes") if draft.retry_ok else "No"
+        attempts = f"{failed} / {failed} ({steps})" if failed else "0 / 0"
+        saved = "n/a (retry fixed it)"
+        retry = "Yes, then failed again" if failed else "Yes"
     outage = int((end - draft.flag).total_seconds())
     return Incident(
         flag=draft.flag,
@@ -246,7 +286,7 @@ def _still_open(draft: _Draft, now: datetime) -> Incident:
         flag=draft.flag,
         life_before_flag=_life(draft),
         hang_location=draft.loc or "?",
-        retry_recovered="No",
+        retry_recovered="Yes, then failed again" if draft.retry_ok else "No",
         attempts="open",
         failed_steps=dict(draft.fails),
         failed_count=sum(draft.fails.values()),
@@ -258,7 +298,10 @@ def _still_open(draft: _Draft, now: datetime) -> Incident:
 
 
 def build_incidents(events: Sequence[Event], now: datetime) -> list[Incident]:
-    """Group flags into incidents, each closed by the next saved session or by a retry-only recovery."""
+    """Group flags into incidents, each closed by the next saved session or by a retry-only recovery.
+
+    The last incident stays open while a flag or a failed relogin came after its latest retry recovery.
+    """
     rows: list[Incident] = []
     draft: _Draft | None = None
     last_loc: Event | None = None
@@ -278,13 +321,14 @@ def build_incidents(events: Sequence[Event], now: datetime) -> list[Incident]:
                     flag=e.time, loc=last_loc.detail if last_loc and recent else None, prev_new=last_new
                 )
             else:
-                draft.last = e.time
+                draft.last = draft.trouble = e.time
         elif draft is not None:
             if e.kind == "RETRY_OK":
                 draft.retry_ok = draft.last = e.time
             elif e.kind == "FAIL":
                 draft.fails[e.detail or "?"] += 1
                 draft.relogin = True
+                draft.trouble = e.time
             elif e.kind == "SAVED":
                 draft.born = e.created_at
                 rows.append(_close(draft, e.time, "save"))
@@ -292,7 +336,11 @@ def build_incidents(events: Sequence[Event], now: datetime) -> list[Incident]:
         if e.kind == "SAVED":
             last_new = e.new_created_at
     if draft is not None:
-        rows.append(_close(draft, draft.retry_ok, "retry") if draft.retry_ok else _still_open(draft, now))
+        retry_ok = draft.retry_ok
+        if retry_ok is not None and retry_ok > draft.trouble:
+            rows.append(_close(draft, retry_ok, "retry"))
+        else:
+            rows.append(_still_open(draft, now))
     return rows
 
 
@@ -364,7 +412,7 @@ def _short_steps(r: Incident) -> str:
 def _compact(r: Incident) -> tuple[str, str, str, str]:
     """(hang location, retry, attempts/failed, saved) in the short forms used by the compact tables."""
     nf = r.failed_count
-    att = "open" if r.open else (f"{nf + 1}/{nf}" if r.saved[0].isdigit() else "0/0")
+    att = "open" if r.open else (f"{nf + 1}/{nf}" if r.saved[0].isdigit() else f"{nf}/{nf}")
     retry = {"Yes, then failed again": "Yes+again"}.get(r.retry_recovered, r.retry_recovered)
     loc = r.hang_location.replace(", 30s", "").replace("token refresh (session expired)", "token refresh")
     saved = r.saved if r.saved[0].isdigit() else ("retry" if r.saved.startswith("n/a") else r.saved)

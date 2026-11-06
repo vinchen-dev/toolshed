@@ -44,6 +44,7 @@ from shed.cron import (
 from shed.lib.errors import ToolError, UsageError
 from shed.lib.output import to_json
 from shed.registry import TOOLS_DIR, list_groups, load_all_tools, load_tool_module
+from shed.tunnels import TunnelManager
 from shed.version import current as shed_version
 
 DEFAULT_HOST = "127.0.0.1"
@@ -269,8 +270,8 @@ document.addEventListener('click', e => {
   b.title = 'Theme: ' + next;
 });
 function copyText(button) {
-  const pre = button.closest('details, .copyable').querySelector('pre');
-  navigator.clipboard.writeText(pre.innerText);
+  const text = button.dataset.copy || button.closest('details, .copyable').querySelector('pre').innerText;
+  navigator.clipboard.writeText(text);
   button.textContent = 'copied';
   setTimeout(() => { button.textContent = 'copy'; }, 1200);
 }
@@ -492,7 +493,8 @@ def page(
         '<meta name="viewport" content="width=device-width, initial-scale=1">\n'
         '<link rel="icon" href="/favicon.svg" type="image/svg+xml">\n'
         f"<title>{esc(title)} - tool-shed</title>\n<script>{_THEME_BOOT}</script>\n<style>{_STYLE}</style>\n</head>\n<body>\n"
-        f'<nav><a class="brand" href="/">{FAVICON}tool-shed</a><a href="/">Jobs</a><a href="/tools">Tools</a>{links}'
+        f'<nav><a class="brand" href="/">{FAVICON}tool-shed</a><a href="/">Jobs</a><a href="/tools">Tools</a>'
+        f'<a href="/tunnels">Tunnels</a>{links}'
         f'<span class="right">{sched}<span>refreshed {now:%H:%M:%S}, every {refresh_s} s</span>'
         f'<span class="muted" title="shed version">v{esc(shed_version())}</span>'
         f'<button class="theme" type="button" aria-label="Switch theme" title="Theme: system">{THEME_ICON}</button></span></nav>\n'
@@ -725,6 +727,96 @@ def tool_view(tool: str, tools_dir: Path) -> tuple[str, ViewFn] | None:
     return str(getattr(found, "TITLE", tool)), cast(ViewFn, found.view)
 
 
+def tunnels_page(
+    manager: TunnelManager, dashboard_port: int, now: datetime, notice: str | None = None
+) -> str:
+    """The Tunnels page: install state, an add form, and one row per tunnel with its public URL and status."""
+    parts = [
+        "<h1>Tunnels <small>Cloudflare quick tunnels to local ports, alive while this dashboard runs</small></h1>"
+    ]
+    if notice:
+        parts.append(f'<p class="error">{esc(notice)}</p>')
+    install = manager.install_state()
+    if install == "installing":
+        parts.append('<p class="summary">Installing cloudflared with Homebrew, this takes a minute...</p>')
+    elif install == "missing":
+        parts.append(
+            '<form method="post" action="/tunnels/install" class="meta"><span>cloudflared is not installed.</span>'
+            '<button class="primary" type="submit">Install with Homebrew</button></form>'
+        )
+    elif install == "failed":
+        parts.append(f'<p class="error">cloudflared install failed: {esc(manager.install_error() or "")}</p>')
+    elif install == "no-brew":
+        parts.append(
+            '<p class="error">cloudflared is not installed and Homebrew is missing; install it from '
+            '<a href="https://developers.cloudflare.com/cloudflare-one/connections/connect-apps/install-and-setup/'
+            'installation/">Cloudflare</a> and reload.</p>'
+        )
+    parts.append(
+        '<form method="post" action="/tunnels" class="meta">'
+        '<input name="target" placeholder="http://localhost:8000" size="28" required>'
+        '<input name="label" placeholder="label (optional)" size="18">'
+        '<button class="primary" type="submit" name="start" value="1">Add and start</button>'
+        '<button type="submit">Add</button></form>'
+    )
+    statuses = manager.statuses()
+    if not statuses:
+        parts.append('<div class="empty"><p>No tunnels yet. Add a local URL above.</p></div>')
+        return "\n".join(parts)
+    rows = []
+    for t in statuses:
+        port = urlsplit(t.target).port
+        warn = (
+            ' <span class="muted" title="anyone with the link can use this dashboard">(this dashboard, no login)</span>'
+            if port == dashboard_port
+            else ""
+        )
+        if t.state in ("running", "unreachable") and t.public_url:
+            public = (
+                f'<a href="{esc(t.public_url)}" target="_blank" rel="noopener">{esc(t.public_url)}</a>'
+                f'<button class="copy" type="button" data-copy="{esc(t.public_url)}" onclick="copyText(this)">copy'
+                "</button>"
+            )
+            if t.state == "unreachable":
+                state = pill("fail", "unreachable") + (
+                    f" <span class=muted>no Cloudflare connection since {esc(when(t.since))}, "
+                    "cloudflared is reconnecting</span>"
+                )
+            else:
+                unknown = ", health check not answering" if t.connections is None else ""
+                state = (
+                    pill("ok", "running") + f" <span class=muted>since {esc(when(t.since))}{unknown}</span>"
+                )
+        elif t.state == "starting":
+            waiting = (
+                "waiting for Cloudflare to accept the connection"
+                if t.public_url
+                else "waiting for cloudflared"
+            )
+            public, state = f'<span class="muted">{waiting}...</span>', pill("running", "starting")
+        elif t.state == "failed":
+            public, state = "-", pill("fail", "failed") + f" <span class=muted>{esc(t.error or '')}</span>"
+        else:
+            public, state = "-", pill("off", "stopped")
+        action = "stop" if t.state in ("running", "starting", "unreachable") else "start"
+        actions = (
+            f'<form method="post" action="/tunnels/{t.id}/{action}" style="display:inline">'
+            f'<button type="submit">{action}</button></form> '
+            f'<form method="post" action="/tunnels/{t.id}/remove" style="display:inline">'
+            '<button type="submit" title="stop and forget">remove</button></form>'
+        )
+        label = f"<b>{esc(t.label)}</b><br>" if t.label else ""
+        rows.append(
+            f"<tr><td>{label}<code>{esc(t.target)}</code>{warn}</td><td>{public}</td><td>{state}</td>"
+            f"<td>{actions}</td></tr>"
+        )
+    parts.append(
+        '<div class="scroll"><table class="data"><tr><th>local target</th><th>public URL</th><th>status</th>'
+        f"<th>actions</th></tr>{''.join(rows)}</table></div>"
+    )
+    return "\n".join(parts)
+
+
 # --- server ---------------------------------------------------------------------------------------
 
 
@@ -747,11 +839,14 @@ class UIServer(ThreadingHTTPServer):
         state_dir: Path = STATE_DIR,
         tools_dir: Path = TOOLS_DIR,
         schedule: bool = False,
+        tunnels: TunnelManager | None = None,
     ) -> None:
         super().__init__(address, Handler)
         self.cron_file = cron_file
         self.tools_dir = tools_dir
         self.store = RunStore(state_dir / "runs")
+        self.tunnels = tunnels or TunnelManager(state_dir / "tunnels.json")
+        self.tunnel_notice: str | None = None
         self.lock_file = state_dir / "cron.lock"
         self.log_file = state_dir / "cron.log"
         self.schedule = schedule
@@ -820,6 +915,7 @@ class UIServer(ThreadingHTTPServer):
 
     def stop(self) -> None:
         self._stop.set()
+        self.tunnels.stop_all()
         self.shutdown()
         self.server_close()
 
@@ -827,6 +923,7 @@ class UIServer(ThreadingHTTPServer):
 _JOB = re.compile(r"^/jobs/([^/]+)$")
 _RUN = re.compile(r"^/jobs/([^/]+)/runs/([^/]+)$")
 _RUN_NOW = re.compile(r"^/jobs/([^/]+)/run$")
+_TUNNEL_ACTION = re.compile(r"^/tunnels/([0-9a-f]+)/(start|stop|remove)$")
 _VIEW = re.compile(r"^/view/([^/]+)$")
 _API_LATEST = re.compile(r"^/api/jobs/([^/]+)/latest$")
 _API_RUNS = re.compile(r"^/api/jobs/([^/]+)/runs$")
@@ -906,6 +1003,15 @@ class Handler(BaseHTTPRequestHandler):
                 self._page("jobs", body, refresh_s=BUSY_REFRESH_S if busy else REFRESH_S)
             elif path == "/tools":
                 self._page("tools", tools_page(ui.tools_dir))
+            elif path == "/tunnels":
+                busy = ui.tunnels.install_state() == "installing" or any(
+                    t.state in ("starting", "unreachable") for t in ui.tunnels.statuses()
+                )
+                notice, ui.tunnel_notice = ui.tunnel_notice, None
+                body = tunnels_page(ui.tunnels, ui.server_address[1], now, notice)
+                self._page("tunnels", body, refresh_s=BUSY_REFRESH_S if busy else REFRESH_S)
+            elif path == "/api/tunnels":
+                self._json({"cloudflared": ui.tunnels.install_state(), "tunnels": ui.tunnels.statuses()})
             elif path == "/api/jobs":
                 self._json([job_summary(job, ui.store, ui.running) for job in ui.jobs()])
             elif path == "/api/tools":
@@ -955,8 +1061,43 @@ class Handler(BaseHTTPRequestHandler):
         except ToolError as exc:
             self._page("error", f"<h1>Error</h1><pre>{esc(str(exc))}</pre>", status=500)
 
+    def _form(self) -> dict[str, str]:
+        length = int(self.headers.get("Content-Length") or 0)
+        data = parse_qs(self.rfile.read(length).decode("utf-8", "replace")) if length else {}
+        return {k: v[0] for k, v in data.items() if v}
+
+    def _tunnel_action(self, path: str) -> bool:
+        """Handle the Tunnels page's forms; every outcome lands back on /tunnels, errors as a notice."""
+        ui = self.ui
+        try:
+            if path == "/tunnels":
+                form = self._form()
+                row = ui.tunnels.add(form.get("target", ""), form.get("label"))
+                if form.get("start"):
+                    ui.tunnels.start(row.id)
+            elif path == "/tunnels/install":
+                ui.tunnels.install()
+            elif m := _TUNNEL_ACTION.match(path):
+                tunnel_id, action = m.group(1), m.group(2)
+                if action == "start":
+                    ui.tunnels.start(tunnel_id)
+                elif action == "stop":
+                    ui.tunnels.stop(tunnel_id)
+                else:
+                    ui.tunnels.remove(tunnel_id)
+            else:
+                return False
+        except (ValueError, KeyError, RuntimeError) as exc:
+            ui.tunnel_notice = str(exc) if not isinstance(exc, KeyError) else f"no tunnel {exc}"
+        self.send_response(HTTPStatus.SEE_OTHER)
+        self.send_header("Location", "/tunnels")
+        self.end_headers()
+        return True
+
     def do_POST(self) -> None:
-        path = urlsplit(self.path).path
+        path = urlsplit(self.path).path.rstrip("/") or "/"
+        if self._tunnel_action(path):
+            return
         if m := _RUN_NOW.match(path):
             if self._job(m.group(1)) is None:
                 return self._not_found(f"job {m.group(1)}")

@@ -10,7 +10,6 @@ import json
 import os
 import plistlib
 import re
-import shutil
 import time
 import tomllib
 import traceback
@@ -353,11 +352,25 @@ def append_log(path: Path, records: Sequence[RunRecord]) -> None:
             fh.write(f"{r.started:%Y-%m-%d %H:%M:%S} {r.job} {status} {r.duration_ms}ms {r.summary}\n")
 
 
-def shed_executable() -> Path:
-    found = shutil.which("shed")
-    if not found:
-        raise ToolError("`shed` is not on PATH; run `uv tool install --editable .` in tool-shed first")
-    return Path(found)
+def shed_executable(path_env: str | None = None) -> Path:
+    """The `shed` the agent should run: the global tool shim, never the repo's own .venv entry point.
+
+    A shell inside the repo puts `.venv/bin` first on PATH, but launchd cannot read a venv under
+    Desktop or Documents (macOS keeps those folders from background agents), so that copy would crash."""
+    candidates = [
+        Path(p) / "shed"
+        for p in (path_env if path_env is not None else os.environ.get("PATH", "")).split(os.pathsep)
+        if p
+    ]
+    venv = (Path(__file__).resolve().parents[2] / ".venv").resolve()
+    for candidate in candidates:
+        if (
+            candidate.is_file()
+            and os.access(candidate, os.X_OK)
+            and not candidate.resolve().is_relative_to(venv)
+        ):
+            return candidate
+    raise ToolError("the global `shed` is not on PATH; run `uv tool install --editable .` in tool-shed first")
 
 
 def agent_plist(shed_path: Path, state_dir: Path, port: int) -> bytes:
