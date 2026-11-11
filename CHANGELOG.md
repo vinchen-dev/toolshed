@@ -6,6 +6,16 @@ in its `TOOL` definition; bump it here when its inputs or result shape change.
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-11-11
+
+### Added
+- `error-trace` (SN): one error text or trace id traced through SLS for PMS, finance-ai or the autorunner: count,
+  first and last seen, count per hour and per container, distinct messages with ids masked, the source files and
+  lines named in stack traces, and optionally every line around the latest occurrence (`--around`). Read-only;
+  lines that mention credentials are cut or withheld.
+- `sn-investigate` skill (SN): the fixed order for investigating an error in those three projects (vault, deployed
+  version, logs, code through graphify when the repo has a graph, data, recent commits) and how to report it.
+
 ## [0.5.0] - 2026-11-11
 
 ### Added
@@ -128,3 +138,4 @@ in its `TOOL` definition; bump it here when its inputs or result shape change.
 | bdo-incidents | 0.2.0 | session state in the result |
 | browser-fetch, product-search, social-search | 0.1.0 | first version |
 | lark-bitable, lark-app-access, mongo-query, mongo-index-diff, redis-get, session-stats, transcript-digest, graph-query, vault-recall, deployed-version, branch-diff, version-stamp, npm-deps-check, meegle-search, meegle-item | 0.1.0 | first version |
+| error-trace | 0.1.0 | first version |

@@ -34,7 +34,7 @@ Tools that talk to external services read their secrets from the environment fir
 
 | Tool | File | Keys |
 |---|---|---|
-| `sls-logs`, `bdo-incidents` | `~/.config/aliyun-sls.env` | `ALIBABA_CLOUD_ACCESS_KEY_ID`, `ALIBABA_CLOUD_ACCESS_KEY_SECRET`, optional `SLS_ENDPOINT` |
+| `sls-logs`, `bdo-incidents`, `deployed-version`, `error-trace` | `~/.config/aliyun-sls.env` | `ALIBABA_CLOUD_ACCESS_KEY_ID`, `ALIBABA_CLOUD_ACCESS_KEY_SECRET`, optional `SLS_ENDPOINT` |
 | `lark-approval` | `~/.config/lark.env` | `LARK_APP_ID`, `LARK_APP_SECRET`, `LARK_APPROVAL_CODE` |
 | `lark-attachments` | `~/.config/lark.env` | `LARK_APP_ID`, `LARK_APP_SECRET` |
 | `lark-doc` | `~/.config/lark.env` | `LARK_APP_ID`, `LARK_APP_SECRET` (app scopes docx, doc and wiki read) |
@@ -119,7 +119,7 @@ Current groups:
 | `core` | api-call, git-context, log-watch, branch-diff, version-stamp, npm-deps-check | every project, every device |
 | `core/database` | mongo-query, mongo-index-diff, redis-get | any machine with a database profile in `~/.config/mongo.toml` or `~/.config/redis.toml` |
 | `agent` | session-stats, transcript-digest, graph-query, vault-recall | any machine with Claude Code transcripts, a graphify graph or the Obsidian vault |
-| `SN` | sls-logs, sls-csv, deployed-version, meegle-search, meegle-item | the work machine |
+| `SN` | sls-logs, sls-csv, deployed-version, error-trace, meegle-search, meegle-item | the work machine |
 | `SN/lark` | lark-approval, lark-attachments, lark-doc, lark-files, lark-bitable, lark-app-access | the work machine (also finance-ai, through `--env-file`) |
 | `SN/autorunner` | bdo-incidents (+ `jobs` for its scheduled runs) | the work machine |
 | `research` | product-search, social-search, browser-fetch | any machine that wants marketplace and social research; needs Playwright's Chromium |
