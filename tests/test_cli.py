@@ -35,7 +35,7 @@ def test_lists_tools_as_json_with_schemas() -> None:
     assert {"api-call", "git-context", "log-watch"} <= set(names)  # base is on every device
     assert not any(name.startswith("_") for name in names)
     git_context = next(t for t in tools if t["name"] == "git-context")
-    assert "commits" in git_context["input"]["properties"] and git_context["group"] == "base"
+    assert "commits" in git_context["input"]["properties"] and git_context["group"] == "core"
 
 
 def test_shows_help_for_a_tool() -> None:
@@ -73,7 +73,7 @@ def test_version_flag_prints_the_shed_version() -> None:
 def test_list_and_help_show_each_tools_version() -> None:
     listing = shed("list")
     line = next(line for line in listing.stdout.splitlines() if line.startswith("git-context"))
-    assert line.split()[:3] == ["git-context", "base", "0.1.0"]
+    assert line.split()[:3] == ["git-context", "core", "0.1.0"]
     tools = json.loads(shed("list", "--json").stdout)
     assert next(t for t in tools if t["name"] == "git-context")["version"] == "0.1.0"
     assert shed("help", "git-context").stdout.startswith("shed git-context  (v0.1.0)")

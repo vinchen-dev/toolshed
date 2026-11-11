@@ -1,11 +1,11 @@
 # tool-shed
 
-A shed of small, well-described tools that AI coding agents call while helping with development. One repo, cloned on every machine: `tools/base/` works for every project and device, and the other group folders (work-only tools such as `tools/PMS/`) are optional and can be dropped on a machine that has no use for them (see [One repo, every device](#one-repo-every-device)).
+A shed of small, well-described tools that AI coding agents call while helping with development. One repo, cloned on every machine: `tools/core/` works for every project and device, and the other group folders (work-only tools such as `tools/SN/`) are optional and can be dropped on a machine that has no use for them (see [One repo, every device](#one-repo-every-device)).
 
 Every tool is defined once (name, description, typed input, `run`) and is reachable two ways:
 
 - **CLI** - `shed <tool> --flag value --json`, for agents that run shell commands (Claude Code's Bash tool, scripts, CI).
-- **MCP** - `shed mcp` serves the same tools over the Model Context Protocol on stdio, with input schemas derived from the same definitions. It also serves `jobs-status`, `job-runs`, `job-result` and `job-run`, which read and trigger the scheduled runs the dashboard shows. Tools can sit in group folders (`tools/base/`, `tools/PMS/`, `tools/PMS/autorunner/`) and `shed mcp --group <folder>` serves only one folder's tools, so each project registers just what it needs.
+- **MCP** - `shed mcp` serves the same tools over the Model Context Protocol on stdio, with input schemas derived from the same definitions. It also serves `jobs-status`, `job-runs`, `job-result` and `job-run`, which read and trigger the scheduled runs the dashboard shows. Tools can sit in group folders (`tools/core/`, `tools/core/database/`, `tools/SN/`, `tools/SN/lark/`, `tools/agent/`) and `shed mcp --group <folder>` serves only one folder's tools, so each project registers just what it needs.
 
 Skills (prose guides that tell Claude Code when to run a tool and how to report) live in `skills/` and are linked into `~/.claude/skills` with `shed skills link`.
 
@@ -24,7 +24,7 @@ shed list
 
 `shed start` is needed after every update because the running dashboard keeps the code it started with, the tools its scheduled jobs run included. It waits for a running job to finish, restarts the launchd agent, waits until the new dashboard answers and prints its version. A restart ends every Cloudflare tunnel, so it names the ones it stopped; start them again on the Tunnels page (each gets a new URL). It also starts the agent after a reboot when the agent could not be made permanent (see below).
 
-`shed update` is idempotent and does, in order: `uv sync`; `uv tool install --editable . --reinstall` (the global `shed` keeps its own environment, so new dependencies need this); `uv run playwright install chromium` when Playwright is a dependency (the research group); `brew install cloudflared` when it is missing and Homebrew exists (for the dashboard's Tunnels page); `shed skills link`; and one MCP server per tool group found under `tools/` plus the job tools (`tool-shed` for `base`, `tool-shed-pms`, `tool-shed-autorunner`, `tool-shed-research`, `tool-shed-jobs`) in every agent CLI it finds on PATH: Claude Code (`claude mcp add --scope user`) and Codex (`codex mcp add`), removing a stale registration of the same name first. A group deleted from this machine is simply not registered. `shed update --dry-run` prints the plan. An agent CLI that is not on PATH is skipped with a message. Any other agent can use the tools through its shell: `shed list --json`, then `shed <tool> --json`.
+`shed update` is idempotent and does, in order: `uv sync`; `uv tool install --editable . --reinstall` (the global `shed` keeps its own environment, so new dependencies need this); `uv run playwright install chromium` when Playwright is a dependency (the research group); `brew install cloudflared` when it is missing and Homebrew exists (for the dashboard's Tunnels page); `shed skills link`; and one MCP server per tool group found under `tools/` plus the job tools (`tool-shed` for `core`, `tool-shed-database`, `tool-shed-sn`, `tool-shed-lark`, `tool-shed-autorunner`, `tool-shed-agent`, `tool-shed-research`, `tool-shed-jobs`) in every agent CLI it finds on PATH: Claude Code (`claude mcp add --scope user`) and Codex (`codex mcp add`), removing a stale registration of the same name first. A group deleted from this machine is simply not registered. `shed update --dry-run` prints the plan. An agent CLI that is not on PATH is skipped with a message. Any other agent can use the tools through its shell: `shed list --json`, then `shed <tool> --json`.
 
 Without the global install, run `uv run shed <args>` from this folder.
 
@@ -39,7 +39,12 @@ Tools that talk to external services read their secrets from the environment fir
 | `lark-attachments` | `~/.config/lark.env` | `LARK_APP_ID`, `LARK_APP_SECRET` |
 | `lark-doc` | `~/.config/lark.env` | `LARK_APP_ID`, `LARK_APP_SECRET` (app scopes docx, doc and wiki read) |
 | `lark-files` | `~/.config/lark.env` | `LARK_APP_ID`, `LARK_APP_SECRET` (app scopes drive and wiki read) |
+| `lark-bitable` | `~/.config/lark.env` | `LARK_APP_ID`, `LARK_APP_SECRET` (app scope bitable read; bitable write only for `--create`/`--update`) |
+| `lark-app-access` | `~/.config/lark.env` | `LARK_APP_ID`, `LARK_APP_SECRET`, optional `LARK_APPROVAL_CODE` (probes only what it is given a target for) |
+| `meegle-search`, `meegle-item` | `~/.config/meegle.env` | `MEEGLE_PLUGIN_ID`, `MEEGLE_PLUGIN_SECRET`, `MEEGLE_USER_KEY` (your user_key); optional `MEEGLE_DOMAIN` (default `project.larksuite.com`) and `MEEGLE_TOKEN_TYPE` (1 = virtual token while the plug-in is unpublished); see [Meegle setup](#meegle-setup). Read-only; needs the plug-in's space, work item, comment and user read permissions |
 
+| `mongo-query`, `mongo-index-diff` | `~/.config/mongo.toml` | one `[profile]` table per database: `url = "mongodb://..."`, optional `db`; or `--env-file <repo/.env>` with `--url-var` (default `MONGODB_URI`). Read-only: the tools only see a view of the driver that refuses writes |
+| `redis-get` | `~/.config/redis.toml` | one `[profile]` table per server: `url = "redis://..."`, optional `db` (index); or `--env-file` with `--url-var` (default `REDIS_URL`) |
 | `api-call` | `~/.config/api-call.toml` | one `[profile]` table per API: `base_url`, `headers = { Authorization = "..." }`, optional `timeout`, `verify` |
 | `browser-fetch`, `product-search`, `social-search` | `~/.config/shed/browser/<site>/` | no keys: a Chromium profile per site, created by `shed browser-fetch --login <site>` (you sign in by hand once; the session cookies stay there, owner-only). The research tools need `uv run playwright install chromium` once per machine. |
 
@@ -81,16 +86,16 @@ shed skills link                # symlink them into ~/.claude/skills
 
 ### Wiring into Claude Code
 
-MCP route (tools show up with schemas, no shell involved). A group is a folder under `tools/`; `--group` names one and can repeat, and the reserved name `jobs` adds the scheduler's `jobs-*` tools. Register the base folder for every project and the others per repo (`--scope local` keeps the entry in `~/.claude.json`, keyed by the folder you run it in; `--scope project` writes `.mcp.json` into the repo instead):
+MCP route (tools show up with schemas, no shell involved). A group is a folder under `tools/`; `--group` names one and can repeat, and the reserved name `jobs` adds the scheduler's `jobs-*` tools. Register the core folder for every project and the others per repo (`--scope local` keeps the entry in `~/.claude.json`, keyed by the folder you run it in; `--scope project` writes `.mcp.json` into the repo instead):
 
 ```sh
 shed update        # registers every group on this machine in Claude Code (user scope) and Codex; by hand, one group looks like:
 claude mcp add --scope user tool-shed-research -- shed mcp --group research
 codex mcp add tool-shed-research -- shed mcp --group research
-cd ~/Desktop/Projects/PMS-Auto-Deposit && claude mcp add --scope local tool-shed-autorunner -- shed mcp --group PMS/autorunner --group jobs   # per-project variant
+cd ~/Desktop/Projects/PMS-Auto-Deposit && claude mcp add --scope local tool-shed-autorunner -- shed mcp --group SN/autorunner --group jobs   # per-project variant
 ```
 
-`shed mcp` with no `--group` still serves everything. `shed mcp groups` prints the folders and their tools. A folder's group holds the tools directly inside it, not those in its subfolders, so `PMS` and `PMS/autorunner` are separate groups.
+`shed mcp` with no `--group` still serves everything. `shed mcp groups` prints the folders and their tools. A folder's group holds the tools directly inside it, not those in its subfolders, so `SN`, `SN/lark` and `SN/autorunner` are separate groups.
 
 Bash route: add a line to `~/.claude/CLAUDE.md` such as
 "`shed list --json` describes local dev tools; run one with `shed <tool> --flags --json`."
@@ -99,10 +104,10 @@ Skills route: `shed skills link` symlinks every `skills/<name>` folder into `~/.
 
 ### One repo, every device
 
-The host (`shed`, cron, the dashboard, `shed mcp`) and `tools/base/` are meant to work on every machine, and the host tests only rely on `base`. Every other group folder is self-contained: its tools, their tests, their fixtures and their skills live under `tools/<group>/` and `skills/<group>/`, and nothing outside those two folders imports them. On a machine that has no use for a group, either leave it unregistered (the tools still show in `shed list`, which is harmless) or remove it:
+The host (`shed`, cron, the dashboard, `shed mcp`) and `tools/core/` are meant to work on every machine, and the host tests only rely on `core`. Every other group folder is self-contained: its tools, their tests, their fixtures and their skills live under `tools/<group>/` and `skills/<group>/`, and nothing outside those two folders imports them. On a machine that has no use for a group, either leave it unregistered (the tools still show in `shed list`, which is harmless) or remove it:
 
 ```sh
-rm -r tools/PMS skills/PMS      # the work-only tools and skills are gone; uv run pytest still passes
+rm -r tools/SN skills/SN        # the work-only tools and skills are gone; uv run pytest still passes
 ```
 
 Git will show the deletion; keep it uncommitted on that machine or commit it on a branch of its own. The group's dependencies stay in `pyproject.toml`, which is harmless.
@@ -111,12 +116,27 @@ Current groups:
 
 | Group | Tools | Where |
 |---|---|---|
-| `base` | api-call, git-context, log-watch | every project, every device |
-| `PMS` | lark-approval, lark-attachments, lark-doc, lark-files, sls-logs, sls-csv | the work machine, registered in the PMS repos |
+| `core` | api-call, git-context, log-watch, branch-diff, version-stamp, npm-deps-check | every project, every device |
+| `core/database` | mongo-query, mongo-index-diff, redis-get | any machine with a database profile in `~/.config/mongo.toml` or `~/.config/redis.toml` |
+| `agent` | session-stats, transcript-digest, graph-query, vault-recall | any machine with Claude Code transcripts, a graphify graph or the Obsidian vault |
+| `SN` | sls-logs, sls-csv, deployed-version, meegle-search, meegle-item | the work machine |
+| `SN/lark` | lark-approval, lark-attachments, lark-doc, lark-files, lark-bitable, lark-app-access | the work machine (also finance-ai, through `--env-file`) |
+| `SN/autorunner` | bdo-incidents (+ `jobs` for its scheduled runs) | the work machine |
 | `research` | product-search, social-search, browser-fetch | any machine that wants marketplace and social research; needs Playwright's Chromium |
-| `PMS/autorunner` | bdo-incidents (+ `jobs` for its scheduled runs) | the work machine, registered in PMS-Auto-Deposit |
 
 Credentials are per machine as well and never in the repo: `~/.config/lark.env`, `~/.config/aliyun-sls.env`, `~/.config/api-call.toml`. `SHED_SKILLS_DIR` points the skills commands at another folder (the tests use it).
+
+### Meegle setup
+
+The Meegle tools call the Meegle Open API (`https://<MEEGLE_DOMAIN>/open_api/...`) as a *plugin*, so they need a plugin of your own. Steps, from the Developer Handbook on meegle.com (2026-11-11):
+
+1. Open the Meegle Developer Platform (your Meegle domain, Developer Platform, "My plug-ins") and click **Add plug-in**; give it a name. Its **Basic information** page shows the **Plugin ID** and **Plugin Secret**: those are `MEEGLE_PLUGIN_ID` and `MEEGLE_PLUGIN_SECRET`.
+2. On the plug-in's **Permission management** page pick the **data scope** (the space you want to read; a test space is what Meegle recommends while developing) and grant the read permissions under *space*, *work item*, *comments* and *user* (hover a permission's "View API" to see which endpoints it covers; the tools use `projects`, `projects/detail`, `work_item/all-types`, `work_item/filter`, `work_items/filter_across_project`, `work_item/<type>/query`, the comments list, the change log and user details).
+3. Your `MEEGLE_USER_KEY`: in a Meegle space, hover your avatar and double-click it in the profile card; the user_key is shown there. Every call runs as that user and only returns what that user may read (`x-auth-mode: 1`).
+4. Write `~/.config/meegle.env` (chmod 600) with the three values, and `MEEGLE_DOMAIN=project.larksuite.com` unless your Meegle lives on `meegle.com` or `project.feishu.cn`.
+5. Until the plug-in is **published** and **installed** in a space by its administrator, Meegle only serves the single data-scope space, through a *virtual* token: set `MEEGLE_TOKEN_TYPE=1` in the env file for that phase and remove it once the plug-in is installed.
+
+Error 10301 ("Check Token Perm Failed") means a permission is missing, the plug-in was not updated after changing permissions, it is not installed in that space, or the space key is wrong. 30006 means the user_key is wrong.
 
 ## Research tools and browser sessions
 
@@ -132,7 +152,7 @@ Both tools report per source or platform (`ok`, `note`, items), so one blocked s
 
 ```sh
 shed new my-tool        # copies tools/_template to tools/my-tool
-shed new PMS/my-tool    # the same, inside the tools/PMS group folder
+shed new SN/my-tool     # the same, inside the tools/SN group folder
 ```
 
 Then edit `tools/my-tool/tool.py`:
@@ -209,7 +229,7 @@ Each run is a JSON file under `~/.local/state/shed/runs/<job>/` holding the rend
 
 The dashboard (`src/shed/ui.py`, stdlib `http.server`, no dependencies) opens with a health strip (all healthy, or which jobs are failing, with the last run and a per-second countdown to the next) and shows one card per job with its status, last run and a run-now button. A theme button in the top bar switches between following the Mac setting, light and dark. A job's page renders the latest result as facts and tables built from the tool's JSON (nothing tool-specific), with the CLI text, the tool's log and the raw JSON one click away, plus the run history with a page per run and the job's settings. `/tools` opens with a one-line index of every tool; each tool's flags and copyable examples fold out underneath. A tool can ship `view.py` beside its `tool.py` to give its jobs a page of their own at `/view/<job>`; `bdo-incidents` does, so `/view/bdo-session` shows QAT and PROD status, the latest incident table and a timeline stitched from every kept run (window and env pickers in the header). Pages refresh themselves every 30 s, every 3 s while a run is in progress. It binds to localhost only and has no authentication; never expose it on another interface by itself.
 
-`/tunnels` is the exception you choose on purpose: a table of Cloudflare quick tunnels. Add a local URL (`http://localhost:8000`), press Add and start, and a `cloudflared tunnel --url ...` process starts under the dashboard; the row shows its state (starting, running since, unreachable since, stopped, failed with cloudflared's last line), the public `https://*.trycloudflare.com` address with a one-click copy button, and stop/remove. Each cloudflared also gets a local metrics port, and the dashboard asks its `/ready` endpoint every 3 seconds how many connections to Cloudflare it holds: running means at least one, unreachable means the process is alive but Cloudflare dropped it (the URL does not work until it reconnects; the row then says how long the Mac slept since the tunnel was last connected and shows cloudflared's latest error, and offers a restart, which makes a new URL), and starting covers the few seconds between the URL banner and the first connection. Rows persist in `~/.local/state/shed/tunnels.json`; the processes end when the dashboard stops or restarts. If `cloudflared` is missing the page offers to install it with Homebrew (`shed update` does the same). A tunnel to the dashboard's own port is flagged on the row because it would expose this unauthenticated UI to anyone with the link. The JSON API (`/api/jobs`, `/api/jobs/<job>/latest`, `/api/jobs/<job>/runs`) serves the same data. So do the MCP tools `jobs-status`, `job-runs`, `job-result` and `job-run` for agents connected through `shed mcp` (`claude mcp add --scope user tool-shed -- shed mcp --group base`; add `--group jobs` wherever the job tools are wanted).
+`/tunnels` is the exception you choose on purpose: a table of Cloudflare quick tunnels. Add a local URL (`http://localhost:8000`), press Add and start, and a `cloudflared tunnel --url ...` process starts under the dashboard; the row shows its state (starting, running since, unreachable since, stopped, failed with cloudflared's last line), the public `https://*.trycloudflare.com` address with a one-click copy button, and stop/remove. Each cloudflared also gets a local metrics port, and the dashboard asks its `/ready` endpoint every 3 seconds how many connections to Cloudflare it holds: running means at least one, unreachable means the process is alive but Cloudflare dropped it (the URL does not work until it reconnects; the row then says how long the Mac slept since the tunnel was last connected and shows cloudflared's latest error, and offers a restart, which makes a new URL), and starting covers the few seconds between the URL banner and the first connection. Rows persist in `~/.local/state/shed/tunnels.json`; the processes end when the dashboard stops or restarts. If `cloudflared` is missing the page offers to install it with Homebrew (`shed update` does the same). A tunnel to the dashboard's own port is flagged on the row because it would expose this unauthenticated UI to anyone with the link. The JSON API (`/api/jobs`, `/api/jobs/<job>/latest`, `/api/jobs/<job>/runs`) serves the same data. So do the MCP tools `jobs-status`, `job-runs`, `job-result` and `job-run` for agents connected through `shed mcp` (`claude mcp add --scope user tool-shed -- shed mcp --group core`; add `--group jobs` wherever the job tools are wanted).
 
 Override the file locations with `SHED_CRON_FILE` and `SHED_STATE_DIR` (the tests do).
 
@@ -232,7 +252,7 @@ src/shed/cron.py     jobs, run records, due logic, the launchd agent (`shed cron
 src/shed/ui.py       the localhost dashboard and JSON API (`shed ui`)
 src/shed/lib/        shared helpers: sh(), ToolError, result rendering
 tools/<group>/<name>/  one folder per tool: tool.py + test_tool.py + whatever it needs; the group folder
-                     (base, PMS, PMS/autorunner) is what `shed mcp --group` serves and can be left out
+                     (core, SN, SN/lark, agent, ...) is what `shed mcp --group` serves and can be left out
 tools/_template/     starting point copied by `shed new`
 skills/<group>/<name>/  SKILL.md only: prose for Claude Code around a tool, linked into ~/.claude/skills
 tests/               host tests (args, CLI, MCP, scaffold)

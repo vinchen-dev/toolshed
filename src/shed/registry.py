@@ -77,7 +77,7 @@ def list_groups(tools_dir: Path = TOOLS_DIR) -> dict[str, list[str]]:
 
 
 def tool_group(name: str, tools_dir: Path = TOOLS_DIR) -> str:
-    """The folder a tool sits in, relative to tools/: "" at the top level, "PMS/autorunner" when nested."""
+    """The folder a tool sits in, relative to tools/: "" at the top level, "SN/autorunner" when nested."""
     return _relative(_tool_dir(name, tools_dir).parent, tools_dir)
 
 

@@ -34,14 +34,14 @@ class Step:
 
 
 def server_names(groups: Sequence[str]) -> dict[str, str]:
-    """MCP server name per group: `tool-shed` for base, else the last folder, or the full path on a clash."""
+    """MCP server name per group: `tool-shed` for core, else the last folder, or the full path on a clash."""
     last = {g: g.rsplit("/", 1)[-1].lower() for g in groups}
     counts: dict[str, int] = {}
     for leaf in last.values():
         counts[leaf] = counts.get(leaf, 0) + 1
     names: dict[str, str] = {}
     for group in groups:
-        if group == "base":
+        if group == "core":
             names[group] = SERVER_PREFIX
             continue
         suffix = last[group] if counts[last[group]] == 1 else group.lower().replace("/", "-")

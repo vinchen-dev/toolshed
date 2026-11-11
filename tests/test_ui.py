@@ -16,7 +16,19 @@ import pytest
 
 from shed.cron import RunRecord
 from shed.scaffold import scaffold_tool
-from shed.ui import UIServer, ago, fmt_scalar, page, plain, render_data, run_page, took, tunnels_page, until
+from shed.ui import (
+    UIServer,
+    ago,
+    fmt_scalar,
+    page,
+    plain,
+    render_data,
+    run_page,
+    took,
+    tools_page,
+    tunnels_page,
+    until,
+)
 from shed.version import current as shed_version
 
 
@@ -98,6 +110,23 @@ def test_dashboard_run_now_and_api(server: UIServer) -> None:
     assert status == 200 and body.startswith("<svg")
     with urllib.request.urlopen(f"{base}/static/inter.woff2", timeout=5) as resp:
         assert resp.status == 200 and resp.headers["Content-Type"] == "font/woff2" and resp.read(4) == b"wOF2"
+
+
+def test_tools_page_sections_tools_by_group_with_their_server(tmp_path: Path) -> None:
+    tools = tmp_path / "tools"
+    tools.mkdir()
+    for name in ("SN/lark/beta-x", "echo-x", "core/database/gamma-x", "core/alpha-x"):
+        scaffold_tool(name, tools_dir=tools)
+    body = tools_page(tools)
+    core = body.index('id="group-core">core <small>tool-shed · shed mcp --group core · 1 tool</small>')
+    database = body.index('id="group-core-database">core/database <small>tool-shed-database ·')
+    lark = body.index(
+        'id="group-SN-lark">SN/lark <small>tool-shed-lark · shed mcp --group SN/lark · 1 tool</small>'
+    )
+    top = body.index('id="group-top">top level <small>no group folder')
+    assert core < database < lark < top
+    assert body.count('<details class="tool" id="tool-') == 4 and 'href="#tool-beta-x"' in body
+    assert body.index('id="tool-alpha-x"') < body.index('id="tool-beta-x"') < body.index('id="tool-echo-x"')
 
 
 def test_tool_view_page(server: UIServer, tmp_path: Path) -> None:

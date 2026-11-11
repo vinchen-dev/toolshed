@@ -666,18 +666,43 @@ def first_sentence(text: str) -> str:
     return re.split(r"(?<=[.!?])\s", text.strip(), maxsplit=1)[0]
 
 
+def group_order(folder: str) -> tuple[int, str]:
+    """core first (it is on every device), then the other groups alphabetically, top-level tools last."""
+    if folder == "core" or folder.startswith("core/"):
+        return (0, folder.lower())
+    return (1, folder.lower()) if folder else (2, "")
+
+
 def tools_page(tools_dir: Path) -> str:
-    tools = list(load_all_tools(tools_dir))
-    group = {name: folder for folder, names in list_groups(tools_dir).items() for name in names}
-    index: list[str] = []
+    from shed.update import server_names  # local: update imports the job tools, which import this module
+
+    tools = {tool.name: tool for tool in load_all_tools(tools_dir)}
+    groups = list_groups(tools_dir)
+    servers = server_names([folder for folder in groups if folder])
+    sections: list[str] = []
     details: list[str] = []
-    for tool in tools:
-        example = f"<code>{esc(tool.examples[0])}</code>" if tool.examples else ""
-        index.append(
-            f'<tr><td class="key"><a href="#tool-{esc(tool.name)}">{esc(tool.name)}</a></td>'
-            f'<td class="muted">{esc(group[tool.name])}</td>'
-            f"<td>{esc(first_sentence(tool.description))}</td><td>{example}</td></tr>"
+    for folder in sorted(groups, key=group_order):
+        index: list[str] = []
+        for name in sorted(groups[folder]):
+            tool = tools[name]
+            example = f"<code>{esc(tool.examples[0])}</code>" if tool.examples else ""
+            index.append(
+                f'<tr><td class="key"><a href="#tool-{esc(name)}">{esc(name)}</a></td>'
+                f"<td>{esc(first_sentence(tool.description))}</td><td>{example}</td></tr>"
+            )
+        served = (
+            f"{esc(servers[folder])} · shed mcp --group {esc(folder)}"
+            if folder
+            else "no group folder: only the plain shed mcp serves it"
         )
+        count = f"{len(index)} tool{'s' if len(index) != 1 else ''}"
+        sections.append(
+            f'<h2 id="group-{esc(folder.replace("/", "-") or "top")}">{esc(folder or "top level")} '
+            f"<small>{served} · {count}</small></h2>"
+            '<div class="scroll"><table class="data"><tr><th>tool</th><th>what it does</th><th>example</th></tr>'
+            f"{''.join(index)}</table></div>"
+        )
+    for tool in sorted(tools.values(), key=lambda t: t.name):
         rows = []
         for flag in describe_flags(tool.input):
             default = (
@@ -711,10 +736,9 @@ def tools_page(tools_dir: Path) -> str:
     return (
         f"<h1>Tools <small>{len(tools)}</small></h1>"
         '<p class="muted">Every tool is also a CLI command and an MCP tool; the flags are its inputs. '
+        "Tools sit in group folders, and each group is one MCP server that shed update registers. "
         "Click a name for its flags and examples.</p>"
-        '<div class="scroll"><table class="data">'
-        "<tr><th>tool</th><th>folder</th><th>what it does</th><th>example</th></tr>"
-        f"{''.join(index)}</table></div>"
+        f"{''.join(sections)}"
         f'<h2 class="section">Details</h2>{"".join(details)}'
     )
 

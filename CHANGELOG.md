@@ -6,6 +6,51 @@ in its `TOOL` definition; bump it here when its inputs or result shape change.
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-11-11
+
+### Added
+- `lark-bitable` (SN/lark): read records from a Lark Base table by link or token with a view, a filter formula and a
+  field list, list its tables, or add/update one record behind the explicit `--create` / `--update` flags.
+- `lark-app-access` (SN/lark): report the Lark app's token, name and status plus one read probe per capability
+  (approval, docx, Drive, wiki, Base), each classified as ok, scope-missing or error.
+- `mongo-query` (core/database): read-only find/count/aggregate on one collection, or list collections, with
+  Extended JSON in and out, from a `~/.config/mongo.toml` profile or a repo's `.env` (`--env-file`, `--url-var`).
+- `mongo-index-diff` (core/database): per-collection index comparison between two databases, or against a JSON
+  snapshot (`--snapshot-out` / `--snapshot-in`).
+- `redis-get` (core/database): type-aware read of one key with its TTL, or a key scan with types and TTLs, from a
+  `~/.config/redis.toml` profile or a repo's `.env`; never writes.
+- `session-stats` (agent): token and tool usage per Claude Code session from `~/.claude/projects`, with `--since`,
+  `--session` and `--all-projects` filters.
+- `transcript-digest` (agent): one session condensed into prompts, replies, tools, files touched, commands and
+  errors, with Manila times, as input for note-taking.
+- `graph-query` (agent): graphify query/explain/path/affected and the graph summary for the nearest `graphify-out/`.
+- `vault-recall` (agent): Obsidian hub-based recall for a project: rank the hub's note hooks by keywords and open
+  one note, following the vault's protocol.
+- `LarkClient` gained `post` and `put` for the Base writes (no tool contract change).
+- `meegle-search` (SN): search Meegle work items in a space or across spaces by name, id, type, state, person,
+  dates, priority or tag, or list spaces and work item types. Read-only, as the plug-in user (`x-auth-mode: 1`).
+- `meegle-item` (SN): one Meegle work item with its fields, state history, nodes, owner, description, comments and
+  optional change log, user_keys resolved to names. Read-only.
+- `deployed-version` (SN): the PMS release running on QAT and PROD from the start-up lines in SLS, with Node
+  version, container count, a mixed-version warning and a comparison with the local checkout.
+- `branch-diff` (core): commits, changed files with line counts, ahead/behind and authors between two refs, for PR
+  descriptions and release notes.
+- `version-stamp` (core): bumps package.json/package-lock.json, a static pyproject.toml version or the latest `v*`
+  tag, rolls CHANGELOG.md's Unreleased section into a dated release, optional git tag, never commits.
+- `npm-deps-check` (core): outdated packages and audit findings by severity through npm or pnpm, read-only.
+
+### Changed
+- `mongo-query`, `mongo-index-diff` and `redis-get` reach their drivers only through read-only views
+  (`tools/core/database/mongo-query/readonly.py`): any operation outside the read allow-list, and any `$out` or
+  `$merge` stage, fails before a command is sent, so the tools cannot write even by mistake.
+- Dashboard: the Tools page is sectioned by group folder, each heading naming the group's MCP server, its
+  `shed mcp --group` command and its tool count (core first, then the other groups alphabetically).
+- Tool groups are themed (DESIGN section 14): `base` is now `core` (its MCP server is still `tool-shed`) and holds
+  `core/database`; `PMS` is now `SN` (`tool-shed-sn`), with the four Lark tools under `SN/lark` (`tool-shed-lark`);
+  `agent` is a new optional group (`tool-shed-agent`). Tool names and `shed <tool>` are unchanged. After pulling, run
+  `shed update` and remove the stale registration once: `claude mcp remove --scope user tool-shed-pms` (and
+  `codex mcp remove tool-shed-pms`).
+
 ## [0.4.0] - 2026-11-06
 
 ### Added
@@ -82,3 +127,4 @@ in its `TOOL` definition; bump it here when its inputs or result shape change.
 | api-call, git-context, log-watch, sls-logs, sls-csv, lark-approval, lark-attachments, lark-doc, lark-files | 0.1.0 | first version |
 | bdo-incidents | 0.2.0 | session state in the result |
 | browser-fetch, product-search, social-search | 0.1.0 | first version |
+| lark-bitable, lark-app-access, mongo-query, mongo-index-diff, redis-get, session-stats, transcript-digest, graph-query, vault-recall, deployed-version, branch-diff, version-stamp, npm-deps-check, meegle-search, meegle-item | 0.1.0 | first version |

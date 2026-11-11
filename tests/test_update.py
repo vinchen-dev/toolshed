@@ -41,7 +41,7 @@ def recorder(monkeypatch: pytest.MonkeyPatch) -> Recorder:
 
 
 def test_update_reinstalls_links_skills_and_registers_every_group(recorder: Recorder, tmp_path: Path) -> None:
-    tools = tools_tree(tmp_path, "base", "PMS", "PMS/autorunner", "research")
+    tools = tools_tree(tmp_path, "core", "SN", "SN/autorunner", "research")
     skills = tmp_path / "skills" / "research" / "product-research"
     skills.mkdir(parents=True)
     (skills / "SKILL.md").write_text("---\nname: product-research\ndescription: x\n---\n")
@@ -61,9 +61,9 @@ def test_update_reinstalls_links_skills_and_registers_every_group(recorder: Reco
     assert all(call[2].get("cwd") == SHED_ROOT for call in recorder.calls[:3])
     assert (target / "product-research").is_symlink()
     expected = {
-        "base": "tool-shed",
-        "PMS": "tool-shed-pms",
-        "PMS/autorunner": "tool-shed-autorunner",
+        "core": "tool-shed",
+        "SN": "tool-shed-sn",
+        "SN/autorunner": "tool-shed-autorunner",
         "research": "tool-shed-research",
         "jobs": "tool-shed-jobs",
     }
@@ -83,7 +83,7 @@ def test_update_skips_claude_registration_when_the_cli_is_missing(
     recorder: Recorder, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(update, "which", lambda name: None if name == "claude" else f"/usr/local/bin/{name}")
-    tools = tools_tree(tmp_path, "base")
+    tools = tools_tree(tmp_path, "core")
     said: list[str] = []
     update.run_update(
         tools_dir=tools,
@@ -93,7 +93,7 @@ def test_update_skips_claude_registration_when_the_cli_is_missing(
         out=said.append,
     )
     assert not any(cmd == "claude" for cmd, _, _ in recorder.calls)
-    assert "codex mcp add tool-shed -- shed mcp --group base" in recorder.lines()
+    assert "codex mcp add tool-shed -- shed mcp --group core" in recorder.lines()
     assert "uv run playwright install chromium" not in recorder.lines()
     assert any("claude" in line and "not found" in line for line in said)
 
@@ -104,14 +104,14 @@ def test_update_skips_codex_when_its_cli_is_missing(
     monkeypatch.setattr(update, "which", lambda name: None if name == "codex" else f"/usr/local/bin/{name}")
     said: list[str] = []
     update.run_update(
-        tools_dir=tools_tree(tmp_path, "base"),
+        tools_dir=tools_tree(tmp_path, "core"),
         skills_dir=tmp_path / "skills",
         skills_target=tmp_path / "s",
         browser=False,
         out=said.append,
     )
     assert not any(cmd == "codex" for cmd, _, _ in recorder.calls)
-    assert "claude mcp add --scope user tool-shed -- shed mcp --group base" in recorder.lines()
+    assert "claude mcp add --scope user tool-shed -- shed mcp --group core" in recorder.lines()
     assert any("codex" in line and "not found" in line for line in said)
 
 
@@ -127,7 +127,7 @@ def test_a_failed_registration_is_reported_and_fails_the_run(
     monkeypatch.setattr(update, "sh", failing)
     said: list[str] = []
     code = update.run_update(
-        tools_dir=tools_tree(tmp_path, "base"),
+        tools_dir=tools_tree(tmp_path, "core"),
         skills_dir=tmp_path / "skills",
         skills_target=tmp_path / "s",
         browser=False,
@@ -138,10 +138,10 @@ def test_a_failed_registration_is_reported_and_fails_the_run(
 
 
 def test_server_names_use_the_last_folder_unless_two_groups_share_it(tmp_path: Path) -> None:
-    assert update.server_names(["base", "PMS", "PMS/autorunner", "research", "jobs"]) == {
-        "base": "tool-shed",
-        "PMS": "tool-shed-pms",
-        "PMS/autorunner": "tool-shed-autorunner",
+    assert update.server_names(["core", "SN", "SN/autorunner", "research", "jobs"]) == {
+        "core": "tool-shed",
+        "SN": "tool-shed-sn",
+        "SN/autorunner": "tool-shed-autorunner",
         "research": "tool-shed-research",
         "jobs": "tool-shed-jobs",
     }
@@ -157,8 +157,8 @@ def test_dry_run_prints_the_plan_without_running_anything(
     assert main(["update", "--dry-run"]) == 0
     out = capsys.readouterr().out
     assert "uv tool install --editable" in out
-    assert "claude mcp add --scope user tool-shed -- shed mcp --group base" in out
-    assert "codex mcp add tool-shed -- shed mcp --group base" in out
+    assert "claude mcp add --scope user tool-shed -- shed mcp --group core" in out
+    assert "codex mcp add tool-shed -- shed mcp --group core" in out
     assert recorder.calls == []
 
 
@@ -169,7 +169,7 @@ def test_update_installs_cloudflared_only_when_missing_and_brew_is_present(
         update, "which", lambda name: None if name == "cloudflared" else f"/opt/homebrew/bin/{name}"
     )
     update.run_update(
-        tools_dir=tools_tree(tmp_path, "base"),
+        tools_dir=tools_tree(tmp_path, "core"),
         skills_dir=tmp_path / "skills",
         skills_target=tmp_path / "s",
         browser=False,
@@ -179,7 +179,7 @@ def test_update_installs_cloudflared_only_when_missing_and_brew_is_present(
     recorder.calls.clear()
     monkeypatch.setattr(update, "which", lambda name: f"/opt/homebrew/bin/{name}")
     update.run_update(
-        tools_dir=tools_tree(tmp_path / "again", "base"),
+        tools_dir=tools_tree(tmp_path / "again", "core"),
         skills_dir=tmp_path / "skills",
         skills_target=tmp_path / "s",
         browser=False,

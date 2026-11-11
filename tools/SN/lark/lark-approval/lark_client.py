@@ -123,6 +123,22 @@ class LarkClient:
         )
         return self._body(response, f"GET {path}")
 
+    def _send(self, method: str, path: str, json: dict[str, Any] | None) -> dict[str, Any]:
+        token = self.access_token()
+        self._paced()
+        response = self._http.request(
+            method, f"{self._base}{path}", json=json, headers={"Authorization": f"Bearer {token}"}
+        )
+        return self._body(response, f"{method} {path}")
+
+    def post(self, path: str, json: dict[str, Any] | None = None) -> dict[str, Any]:
+        """POST a JSON body with the tenant token; the body is returned once its code is 0."""
+        return self._send("POST", path, json)
+
+    def put(self, path: str, json: dict[str, Any] | None = None) -> dict[str, Any]:
+        """PUT a JSON body with the tenant token; the body is returned once its code is 0."""
+        return self._send("PUT", path, json)
+
     def _binary(self, url: str, headers: dict[str, str], what: str) -> tuple[bytes, str, str]:
         self._paced()
         response = self._http.get(url, headers=headers, follow_redirects=True)

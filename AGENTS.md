@@ -7,7 +7,7 @@ Design decisions and their reasons: `docs/DESIGN.md`. Usage and conventions: `RE
 
 - `uv run pytest` tests, `uv run pyright` types, `uv run ruff check . && uv run ruff format .` lint/format. All three must pass before staging.
 - `uv run shed <args>` runs the CLI from this folder (`shed` once installed with `uv tool install --editable .`).
-- `uv run shed new [<group>/]<kebab-name>` scaffolds `tools/<group>/<name>/` from `tools/_template/`. Group folders (`base`, `PMS`, `PMS/autorunner`, `research`) are what `shed mcp --group` serves; a tool name must be unique across the tree.
+- `uv run shed new [<group>/]<kebab-name>` scaffolds `tools/<group>/<name>/` from `tools/_template/`. Group folders (`core`, `core/database`, `SN`, `SN/lark`, `SN/autorunner`, `agent`, `research`) are what `shed mcp --group` serves; a tool name must be unique across the tree.
 - `uv add <package>` adds a dependency; commit `uv.lock`.
 - `uv run shed skills link [--group <folder>]` symlinks every skill (or one folder's) into `~/.claude/skills`; `uv run shed skills` lists them. Skills sit in the same group folders as their tools.
 - `shed start` (re)starts the launchd agent that runs the dashboard and scheduler; run it after every `shed update`, because the running dashboard keeps the code it started with.
@@ -35,7 +35,7 @@ Design decisions and their reasons: `docs/DESIGN.md`. Usage and conventions: `RE
 - Raise `ToolError` for expected failures. Resolve paths against `ctx.cwd`.
 - Import heavy SDKs lazily inside `run()` behind a seam function so tests can patch it and `shed list` stays fast.
 - Keep `src/shed/lib/` small. Code only one tool needs stays in that tool's folder.
-- `tools/base/` is on every device; every other group folder is optional and removable per machine. Host code and host tests (`src/`, `tests/`) therefore depend on `base` only, and a tool imports only tools in its own group tree. `SHED_SKILLS_DIR` overrides the skills folder for tests.
+- `tools/core/` is on every device; every other group folder is optional and removable per machine. Host code and host tests (`src/`, `tests/`) therefore depend on `core` only, and a tool imports only tools in its own group tree (a parent group counts: `deployed-version` in `SN` uses `sls-logs`). `SHED_SKILLS_DIR` overrides the skills folder for tests.
 - A skill never holds code or copies of a tool's output format; it points at the tool.
 - Changing a convention means updating `docs/DESIGN.md` and the template in the same change.
 - Versioning: the shed's version is the latest `v*` git tag (`shed --version`); release by tagging. Each `TOOL` has a `version`; bump it and add a line under `## [Unreleased]` in `CHANGELOG.md` whenever a tool's inputs or result shape change, and list every user-visible change there.
