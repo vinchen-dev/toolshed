@@ -238,6 +238,7 @@ def _claude_session(
     held_by = held[0][1] if held else None
     last_sign = max(signs) if signs else None
     name = (record.name if record else "") or (session.title if session else "") or session_id[:8]
+    began = (record.proc_start if record else None) or (claude.first_write(path) if path else None)
     scan.saw_version("claude", (record.version if record else "") or (session.version if session else ""))
     if capped:
         scan.notes.append(f"{name}: turn started before the last 8 MB of its transcript")
@@ -262,6 +263,7 @@ def _claude_session(
         kind=(record.kind or None) if record else None,
         entrypoint=(record.entrypoint or None) if record else None,
         model=claude.newest_model(session) if session else None,
+        started=t.manila(began) or None,
         state=verdict.state,
         reason=verdict.reason,
         quiet_s=int((scan.now - last_sign).total_seconds()) if last_sign else None,

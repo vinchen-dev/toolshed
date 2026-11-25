@@ -217,19 +217,43 @@ details.tool { border: 1px solid var(--line); border-radius: 10px; padding: var(
                background: var(--surface); box-shadow: var(--shadow-1); transition: border-color .15s, box-shadow .15s; }
 details.tool > summary { color: inherit; margin: 2px 0; } details.tool[open] > summary { margin-bottom: var(--s2); }
 details.tool[open], details.tool:target { border-color: var(--line-strong); box-shadow: var(--shadow-2); }
+.groups { overflow-x: auto; --cols: 132px minmax(260px, 2fr) 132px minmax(260px, 2.4fr) 96px 164px 116px 116px; }
+.groups > * { min-width: 1310px; }
+.group { border: 1px solid var(--line); border-radius: 10px; background: var(--surface); box-shadow: var(--shadow-1);
+         margin-top: var(--s2); overflow: hidden; }
+.group-head, .group-row { display: grid; grid-template-columns: var(--cols); padding-left: 29px; font-size: 13px; line-height: 1.4; }
+.group-head { margin-left: 1px; color: var(--muted); font-weight: 500; font-size: 12px; white-space: nowrap; }
+.group-head > * { padding: 0 var(--s3); } .group-head .num { text-align: right; }
+.group-row > * { padding: 6px var(--s3); min-width: 0; }
+.group > .group-row > * { padding-top: var(--s2); padding-bottom: var(--s2); }
+details.group > summary { grid-template-columns: 29px var(--cols); gap: 0; align-items: start; margin: 0; padding-left: 0; color: inherit; }
+details.group > summary::before { margin: 11px 0 0 9px; padding: 0; color: var(--muted); }
+details.group > summary:focus-visible { outline-offset: -2px; border-radius: 10px; }
+.group-body { border-top: 1px solid var(--line); background: var(--surface-2); }
+.group-body > .group-row + .group-row { border-top: 1px solid var(--line); }
+.group-row:has(> span > .pill.off) { color: var(--muted); }
+.group-row .what { padding-left: calc(var(--s3) + var(--depth, 0) * 20px); }
+.group-row .name { font-size: 14px; font-weight: 600; letter-spacing: -.005em; }
+.group-row .what small { display: block; font-size: 12.5px; }
+.group-row .num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.group-row .time { white-space: nowrap; font-variant-numeric: tabular-nums; }
 .copyable h4 { display: flex; align-items: center; }
 @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; }
                                           *, ::before, ::after { transition: none !important; animation: none !important; } }
 """
 _SCRIPT = """
 const REFRESH_MS = %d;
+const WATCH_MS = 3000;
+let stamp = document.getElementById('main').dataset.stamp || null;
 async function refresh() {
   try {
     const r = await fetch(location.pathname + location.search, {cache: 'no-store'});
     const d = new DOMParser().parseFromString(await r.text(), 'text/html');
-    const open = [...document.querySelectorAll('#main details')].map(x => x.open);
+    stamp = d.getElementById('main').dataset.stamp || stamp;
+    const open = {};
+    document.querySelectorAll('#main details').forEach((x, i) => { open[x.id || i] = x.open; });
     document.getElementById('main').innerHTML = d.getElementById('main').innerHTML;
-    document.querySelectorAll('#main details').forEach((x, i) => { if (open[i] !== undefined) x.open = open[i]; });
+    document.querySelectorAll('#main details').forEach((x, i) => { if ((x.id || i) in open) x.open = open[x.id || i]; });
     const right = d.querySelector('nav .right');
     if (right) document.querySelector('nav .right').innerHTML = right.innerHTML;
     const version = d.getElementById('version');
@@ -239,6 +263,13 @@ async function refresh() {
   } catch (e) {}
 }
 setInterval(refresh, REFRESH_MS);
+async function watch() {
+  try {
+    const seen = (await (await fetch('/api/stamp', {cache: 'no-store'})).json()).stamp;
+    if (stamp === null) stamp = seen; else if (seen !== stamp) await refresh();
+  } catch (e) {}
+}
+setInterval(watch, WATCH_MS);
 function untilText(s) {
   if (s <= 0) return 'due now';
   if (s < 3600) { const m = Math.floor(s / 60), r = s - m * 60; return m ? `in ${m} min ${r} s` : `in ${r} s`; }
@@ -497,7 +528,9 @@ def page(
     refresh_s: int = REFRESH_S,
     views: Mapping[str, str] | None = None,
     strip: str = "",
+    stamp: str = "",
 ) -> str:
+    """One whole page. ``stamp`` marks which recorded runs it shows, so its script can tell when to refresh."""
     sched = pill("ok", "scheduler on") if scheduler else pill("off", "scheduler off")
     links = "".join(f'<a href="/view/{esc(job)}">{esc(label)}</a>' for job, label in (views or {}).items())
     return (
@@ -511,7 +544,8 @@ def page(
         f'<a href="/tunnels">Tunnels</a>{links}'
         f'<span class="right">{sched}<span>refreshed {now:%H:%M:%S}, every {refresh_s} s</span>'
         f'<button class="theme" type="button" aria-label="Switch theme" title="Theme: system">{THEME_ICON}</button></span></nav>\n'
-        f'{strip}<main id="main">\n{body}\n</main>\n<script>{_SCRIPT % (refresh_s * 1000)}</script>\n</body>\n</html>\n'
+        f'{strip}<main id="main" data-stamp="{esc(stamp)}">\n{body}\n</main>\n'
+        f"<script>{_SCRIPT % (refresh_s * 1000)}</script>\n</body>\n</html>\n"
     )
 
 
@@ -1008,6 +1042,7 @@ class Handler(BaseHTTPRequestHandler):
                 local_now(),
                 scheduler=self.ui.schedule,
                 refresh_s=refresh_s,
+                stamp=self.ui.store.stamp(),
                 **self._chrome(),
             ),
             status=status,
@@ -1068,6 +1103,8 @@ class Handler(BaseHTTPRequestHandler):
                 notice, ui.tunnel_notice = ui.tunnel_notice, None
                 body = tunnels_page(ui.tunnels, ui.server_address[1], now, notice)
                 self._page("tunnels", body, refresh_s=BUSY_REFRESH_S if busy else REFRESH_S)
+            elif path == "/api/stamp":
+                self._json({"stamp": ui.store.stamp()})
             elif path == "/api/tunnels":
                 self._json({"cloudflared": ui.tunnels.install_state(), "tunnels": ui.tunnels.statuses()})
             elif path == "/api/jobs":

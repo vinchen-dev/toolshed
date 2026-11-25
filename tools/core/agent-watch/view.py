@@ -1,9 +1,11 @@
-"""Dashboard page for jobs that run agent-watch: what needs attention, every session as a tree, the state
-changes across the kept runs, and the sessions that ended. Built from stored runs only; it never scans."""
+"""Dashboard page for jobs that run agent-watch: every session as a block with what it started under it,
+the ones that need attention first, then the state changes across the kept runs and the sessions that ended.
+Built from stored runs only; it never scans."""
 
 from __future__ import annotations
 
 import itertools
+from collections import Counter
 from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
@@ -16,10 +18,29 @@ from shed.lib.manila import MANILA
 from shed.ui import ago, esc, pill, span
 
 from . import states
-from .models import CommandItem, Report, SessionItem, SubagentItem, keep_states, subagent_counts
+from .models import (
+    CommandItem,
+    Report,
+    SessionItem,
+    SubagentItem,
+    by_state,
+    folder,
+    keep_states,
+    subagent_counts,
+)
 
 TITLE = "Agents"
 SHOW = ("all", "attention", "working", "idle")
+COLUMNS = (
+    "State",
+    "Session, and what it started",
+    "Model",
+    "Doing now",
+    "Started",
+    "Turn",
+    "Quiet",
+    "In this state",
+)
 MAX_CHANGES = 200
 _PILL = {"stalled": "fail", "needs-input": "fail", "gone": "fail", "failed": "fail", "working": "running"}
 _PILL |= {"serving": "ok", "done": "ok", "idle": "off", "ended": "off"}
@@ -112,71 +133,104 @@ def _quiet(item: SessionItem | SubagentItem | CommandItem) -> str:
     return esc(span(item.quiet_s)) if item.quiet_s is not None else "-"
 
 
-def _attention(rows: Sequence[Row], history: Sequence[tuple[datetime, dict[str, str]]], now: datetime) -> str:
-    wanted = [row for row in rows if row.item.state in states.ATTENTION]
-    if not wanted:
-        return '<p class="muted">Nothing needs attention.</p>'
-    body = []
-    for row in sorted(wanted, key=lambda row: states.ORDER.index(row.item.state)):
-        since = history[0][0]
-        for started, marks in history:  # newest first: walk back while the state holds
-            if marks.get(row.id) != row.item.state:
-                break
-            since = started
-        held = f"{span(int((now - since).total_seconds()))}, since {_clock(since, now)}"
-        where = f"{row.kind} {row.id[:8]}" + (f" of {row.owner}" if row.owner else "")
-        body.append(
-            f"<tr><td>{_state(row.item.state)}</td>"
-            f'<td class="key">{esc(row.label)}<br><span class="muted">{esc(where)}</span></td>'
-            f'<td class="num">{_quiet(row.item)}</td><td class="time">{esc(held)}</td>'
-            f"<td>{esc(row.item.reason)}</td></tr>"
-        )
-    return _table(("State", "Item", "Quiet", "In this state", "Evidence"), body)
+def _held(row: Row, history: Sequence[tuple[datetime, dict[str, str]]], now: datetime) -> str:
+    """The cell that says how long the item has held its state across the kept runs; hover gives the time."""
+    since = history[0][0]
+    for started, marks in history:  # newest first: walk back while the state holds
+        if marks.get(row.id) != row.item.state:
+            break
+        since = started
+    held = span(int((now - since).total_seconds()))
+    return f'<span class="time" title="since {esc(_clock(since, now))}">{esc(held)}</span>'
 
 
-def _session_cells(session: SessionItem) -> tuple[str, str, str, str]:
-    """Model, doing now, turn and agent for a session row."""
-    turn = session.turn
-    progress = (
-        f"{span(turn.elapsed_s)} · {turn.tool_calls or 0} calls"
-        if turn and turn.elapsed_s is not None
-        else "-"
+def _calls(count: int) -> str:
+    return f"{count} call" if count == 1 else f"{count} calls"
+
+
+def _facts(item: SessionItem | SubagentItem | CommandItem) -> tuple[str, str, str]:
+    """Model, what it is doing, and turn or progress for one row. An item that needs attention shows its
+    evidence in place of its activity."""
+    evidence = item.reason if item.state in states.ATTENTION else None
+    if isinstance(item, SessionItem):
+        turn, progress = item.turn, "-"
+        if turn and turn.elapsed_s is not None:
+            progress = f"{span(turn.elapsed_s)} · {_calls(turn.tool_calls or 0)}"
+        return item.model or "-", evidence or item.activity or item.reason, progress
+    if isinstance(item, SubagentItem):
+        return item.model or "-", evidence or item.activity or item.reason, _calls(item.tool_calls)
+    return "", item.reason, span(item.runtime_s or 0)
+
+
+def _began(item: SessionItem | SubagentItem | CommandItem, now: datetime) -> str:
+    """The clock time the item started, with the date when that was another day; a dash when unknown."""
+    try:
+        began = datetime.strptime(item.started or "", "%Y-%m-%d %H:%M:%S").replace(tzinfo=MANILA)
+    except ValueError:
+        return "-"
+    return _clock(began, now)
+
+
+def _kind(item: SessionItem | SubagentItem | CommandItem) -> str:
+    """What a row under a session is: a subagent, a command, or a session it launched."""
+    if isinstance(item, SubagentItem):
+        return "subagent · background" if item.mode == "background" else "subagent"
+    if isinstance(item, SessionItem):
+        return " · ".join(part for part in ("session", item.agent, item.entrypoint or "") if part)
+    return "command"
+
+
+def _cells(row: Row, what: str, held: str, now: datetime) -> str:
+    """The cells of one row; ``what`` and ``held`` are its name and in-this-state cells, already escaped."""
+    model, doing, progress = _facts(row.item)
+    return (
+        f"<span>{_state(row.item.state)}</span>{what}<span>{esc(model)}</span><span>{esc(doing)}</span>"
+        f'<span class="time">{esc(_began(row.item, now))}</span><span class="time">{esc(progress)}</span>'
+        f'<span class="num">{_quiet(row.item)}</span>{held}'
     )
-    doing = session.activity or session.reason
-    agent = " · ".join(part for part in (session.agent, session.entrypoint or "") if part)
-    return session.model or "-", doing, progress, agent
 
 
-def _tree(sessions: Sequence[SessionItem]) -> str:
-    body = []
-    for row in (row for session in sessions for row in _rows(session)):
-        item = row.item
-        indent = "&nbsp;" * (4 * row.depth) + ("└ " if row.depth else "")
-        if isinstance(item, SessionItem):
-            model, doing, progress, agent = _session_cells(item)
-            prompt = item.turn.prompt if item.turn and item.turn.prompt else ""
-            below = " · ".join(part for part in (prompt, subagent_counts(item)) if part)
-            kind = '<span class="muted">session</span> ' if row.depth else ""
-            name = f"{indent}{kind}{esc(item.name)}" + (
-                f'<br><span class="muted">{esc(below)}</span>' if below else ""
-            )
-        else:
-            model = item.model or "-" if isinstance(item, SubagentItem) else ""
-            doing = (item.activity if isinstance(item, SubagentItem) else None) or item.reason
-            progress = (
-                f"{item.tool_calls} calls" if isinstance(item, SubagentItem) else span(item.runtime_s or 0)
-            )
-            agent = (
-                item.mode if isinstance(item, SubagentItem) else ", ".join(f":{port}" for port in item.ports)
-            )
-            name = f'{indent}<span class="muted">{esc(row.kind)}</span> {esc(row.label)}'
-        body.append(
-            f'<tr><td>{_state(item.state)}</td><td class="key">{name}</td><td>{esc(model)}</td>'
-            f'<td>{esc(doing)}</td><td class="time">{esc(progress)}</td>'
-            f'<td class="num">{_quiet(item)}</td><td>{esc(agent)}</td></tr>'
-        )
-    head = ("State", "Session and what it started", "Model", "Doing now", "Turn", "Quiet", "Agent")
-    return _table(head, body) if body else '<p class="muted">No sessions match.</p>'
+def _needs(session: SessionItem) -> bool:
+    """Whether the session, or anything under it, needs attention."""
+    return any(row.item.state in states.ATTENTION for row in _rows(session))
+
+
+def _block(session: SessionItem, history: Sequence[tuple[datetime, dict[str, str]]], now: datetime) -> str:
+    """One session as a block: its own row, and under it everything it started, which folds away."""
+    head, *under = _rows(session)
+    found = Counter(row.item.state for row in under if row.item.state in states.ATTENTION)
+    flags = "".join(f" {pill('fail', f'{found[state]} {state}')}" for state in states.ORDER if found[state])
+    prompt = session.turn.prompt if session.turn and session.turn.prompt else ""
+    below = " · ".join(part for part in (prompt, subagent_counts(session)) if part)
+    runs = " · ".join(
+        part for part in (folder(session.project), session.agent, session.entrypoint or "") if part
+    )
+    small = f"<small>{esc(runs)}</small>" + (f"<small>{esc(below)}</small>" if below else "")
+    what = f'<span class="what"><b class="name">{esc(session.name)}</b>{flags}{small}</span>'
+    top = _cells(head, what, _held(head, history, now), now)
+    if not under:
+        return f'<div class="group"><div class="group-row">{top}</div></div>'
+    rows = []
+    for row in under:
+        label = f'<span class="muted">{esc(_kind(row.item))}</span> {esc(row.label)}'
+        what = f'<span class="what" style="--depth: {row.depth - 1}">{label}</span>'
+        rows.append(f'<div class="group-row">{_cells(row, what, _held(row, history, now), now)}</div>')
+    return (
+        f'<details class="group" id="s-{esc(session.id[:8])}" open><summary class="group-row">{top}</summary>'
+        f'<div class="group-body">{"".join(rows)}</div></details>'
+    )
+
+
+def _blocks(
+    sessions: Sequence[SessionItem], history: Sequence[tuple[datetime, dict[str, str]]], now: datetime
+) -> str:
+    if not sessions:
+        return '<p class="muted">No sessions match.</p>'
+    head = "".join(
+        f'<span class="num">{name}</span>' if name == "Quiet" else f"<span>{name}</span>" for name in COLUMNS
+    )
+    blocks = "".join(_block(session, history, now) for session in sessions)
+    return f'<div class="groups"><div class="group-head">{head}</div>{blocks}</div>'
 
 
 def _changes(
@@ -212,7 +266,7 @@ def _ended(sessions: Sequence[SessionItem], retain_s: int) -> str:
         prompt = session.turn.prompt if session.turn and session.turn.prompt else ""
         calls = session.turn.tool_calls if session.turn and session.turn.tool_calls is not None else 0
         counts = (
-            f"{calls} calls, {session.subagents_finished} subagents, {session.commands_finished} commands"
+            f"{_calls(calls)}, {session.subagents_finished} subagents, {session.commands_finished} commands"
         )
         body.append(
             f'<tr><td>{_state(session.state)}</td><td class="key">{esc(session.name)}</td>'
@@ -222,7 +276,7 @@ def _ended(sessions: Sequence[SessionItem], retain_s: int) -> str:
     table = _table(("State", "Session", "Model", "Last write", "Last prompt", "Last turn"), body)
     inner = table if body else '<p class="muted">None.</p>'
     title = f"Ended in the last {esc(period)} <small>{len(sessions)}</small>"
-    return f"<details><summary>{title}</summary>{inner}</details>"
+    return f'<details id="ended"><summary>{title}</summary>{inner}</details>'
 
 
 def _history(
@@ -287,11 +341,6 @@ def view(job: str, runs: Sequence[RunRecord], now: datetime, query: Mapping[str,
     )
     parts.append(f'<div class="meta">{counted}</div>')
     history, labels = _history(runs)
-    rows = [row for session in report.sessions for row in _rows(session)]
-    attention = sum(1 for row in rows if row.item.state in states.ATTENTION)
-    parts.append(f'<h2 class="section">Needs attention <small>{attention} items</small></h2>')
-    parts.append(_attention(rows, history, now))
-
     live = [session.model_copy(deep=True) for session in report.sessions if session.state != "ended"]
     if project:
         live = [session for session in live if session.project.rstrip("/").rsplit("/", 1)[-1] == project]
@@ -299,8 +348,12 @@ def view(job: str, runs: Sequence[RunRecord], now: datetime, query: Mapping[str,
         live = [session for session in live if keep_states(session, states.ATTENTION)]
     elif show in ("working", "idle"):
         live = [session for session in live if session.state == show]
-    parts.append(f'<h2 class="section">Sessions <small>{len(live)} live</small></h2>')
-    parts.append(_tree(live))
+    live.sort(key=lambda session: (not _needs(session), by_state(session)))  # trouble first, wherever it sits
+    flagged = sum(1 for session in live if _needs(session))
+    first = "needs attention and comes first" if flagged == 1 else "need attention and come first"
+    note = f"{flagged} {first}" if flagged else "nothing needs attention"
+    parts.append(f'<h2 class="section">Sessions <small>{len(live)} live, {note}</small></h2>')
+    parts.append(_blocks(live, history, now))
 
     oldest = runs[-1].started
     kept = f"{len(runs)} runs kept, back to {_clock(oldest, now)}"

@@ -66,6 +66,8 @@ class SessionItem(BaseModel):
     kind: str | None = None
     entrypoint: str | None = None
     model: str | None = None
+    started: str | None = None
+    """When the session began: its process start, or its first record once no process holds it."""
     state: State
     reason: str
     quiet_s: int | None = None
@@ -106,6 +108,12 @@ class Report(BaseModel):
 def by_state(item: SubagentItem | SessionItem | CommandItem) -> tuple[int, str]:
     """Attention first, then by name, so every listing reads the same way."""
     return ORDER.index(item.state), item.name if isinstance(item, SessionItem) else item.id
+
+
+def folder(project: str) -> str:
+    """A session's folder, with the home folder written as ~."""
+    home = str(Path.home())
+    return "~" + project[len(home) :] if project.startswith(home) else project
 
 
 def subagent_counts(session: SessionItem) -> str:

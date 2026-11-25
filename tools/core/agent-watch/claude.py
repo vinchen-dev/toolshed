@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import itertools
 import json
 import re
 from dataclasses import dataclass
@@ -17,6 +18,8 @@ _PROC_START = "%a %b %d %H:%M:%S %Y"
 _PROMPT, _ACTIVITY, _END = 0, 1, 2
 MEMO_LIMIT = 512
 OUTPUT_TAIL_BYTES = 64 * 1024
+FIRST_LINES = 20
+"""Lines read from the top of a transcript to find when it began; the first few may carry no time."""
 STOP_TOOL = "TaskStop"
 _OCTAL = re.compile(r"\\([0-7]{3})")
 _WRAPPER = re.compile(r"\beval '(.*)'(?: < /dev/null)? && pwd -P", re.DOTALL)
@@ -104,6 +107,31 @@ def _epoch_ms(value: object) -> datetime | None:
     return datetime.fromtimestamp(value / 1000, UTC) if isinstance(value, int | float) and value > 0 else None
 
 
+def when(value: object) -> datetime | None:
+    """An ISO timestamp from a transcript or rollout record as a UTC time, or None when it is not one."""
+    if not isinstance(value, str):
+        return None
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(UTC)
+    except ValueError:
+        return None
+
+
+def first_write(path: Path) -> datetime | None:
+    """When the transcript's first record was written, read from its first few lines only."""
+    try:
+        for raw in itertools.islice(t.tail_lines(path, None), FIRST_LINES):
+            try:
+                record = json.loads(raw)
+            except ValueError:
+                continue
+            if isinstance(record, dict) and (stamp := when(record.get("timestamp"))):
+                return stamp
+    except OSError:
+        return None
+    return None
+
+
 def read_registry(folder: Path, notes: list[str]) -> list[Registered]:
     """Every readable registry record; the key files beside them are never opened."""
     if not folder.is_dir():
@@ -180,9 +208,14 @@ def read_agents(transcript: Path, oldest: float, notes: list[str]) -> list[Agent
         try:
             if log.stat().st_mtime < oldest:
                 continue
-            meta = json.loads(meta_path.read_text(encoding="utf-8"))
+            raw = meta_path.read_text(encoding="utf-8")
+            if not raw.strip():
+                continue  # its metadata is being written: it was started this instant
+            meta = json.loads(raw)
             depth = int(meta.get("spawnDepth") or 1)
             tail = read_tail_cached(log)[0]
+        except FileNotFoundError:
+            continue  # registered, but its transcript is not there yet: it was started this instant
         except (OSError, ValueError, TypeError, AttributeError):
             notes.append(f"subagent {stem} of {transcript.stem[:8]} is unreadable")
             continue

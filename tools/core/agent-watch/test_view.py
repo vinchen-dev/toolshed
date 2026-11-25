@@ -62,23 +62,57 @@ def page(runs: list[RunRecord], query: dict[str, str] | None = None, now: dateti
     return view.view("agents", runs, now or NOW + timedelta(seconds=40), query or {})
 
 
-def test_the_page_puts_attention_first_then_sessions_changes_and_ended_ones(home: Any) -> None:
+def sessions_part(html: str) -> str:
+    return html[html.index("Sessions <small>") : html.index("Recent changes")]
+
+
+def block_of(html: str, session_id: str) -> str:
+    """The block of one session: its own row and everything listed under it."""
+    start = html.index(f'id="s-{session_id[:8]}"')
+    return html[
+        start : html.index('<div class="group"', start) if '<div class="group"' in html[start:] else None
+    ]
+
+
+def test_the_page_lists_each_session_as_a_block_with_what_it_started_under_it(home: Any) -> None:
     mixed(home)
     html = page([snapshot(home)])
     assert '<h1>Agents <small><a href="/jobs/agents">agents</a></small></h1>' in html
-    order = [
-        html.index(text)
-        for text in ("Needs attention", "Sessions <small>", "Recent changes", "Ended in the last day")
-    ]
-    assert order == sorted(order)
+    order = [html.index(text) for text in ("Sessions <small>", "Recent changes", "Ended in the last day")]
+    assert order == sorted(order) and "Needs attention" not in html
     assert "snapshot <b>just now</b>" in html
     for count in ("1 stalled", "1 working", "1 idle", "1 ended"):
         assert count in html
-    assert "<th>Model</th>" in html and MODEL in html
-    ended = html[html.index("<details>") :]
-    assert "Ended in the last day" in ended and "<details open" not in html
-    attention = html[html.index("Needs attention") : html.index("Sessions <small>")]
-    assert "a111" in attention and "No progress for 8m" in attention and "checkout-api-97" in attention
+    assert "<span>Model</span>" in html and MODEL in html
+    assert "<span>Started</span>" in html and "<span>Agent</span>" not in html
+    assert '<details id="ended">' in html, "the ended sessions stay folded"
+
+    busy = block_of(html, fakes.SID)
+    assert busy.startswith(f'id="s-{fakes.SID[:8]}" open>'), "a session that started something opens unfolded"
+    head, under = busy.split("</summary>")
+    assert "checkout-api-97" in head and '<span class="pill fail">1 stalled</span>' in head
+    assert "<small>/tmp/work/checkout-api · claude · cli</small>" in head, "its folder and what runs it"
+    assert '<span class="time">15:00</span>' in head, "when the session started"
+    assert '<span class="muted">subagent · background</span>' in under
+    assert '<span class="time">16:52</span>' in under, "when the subagent started"
+    assert "Explore: find the retry policy" in under and "No progress for 8m" in under
+    assert "notes-4f" not in busy
+
+    alone = html[html.index("notes-4f") - 200 : html.index("notes-4f")]
+    assert '<div class="group">' in alone, "a session that started nothing is a plain block with no fold"
+    assert html.index("checkout-api-97") < html.index("notes-4f")
+    assert "· 1 call<" in html and "1 calls" not in html, "one call is not written as a plural"
+
+
+def test_a_session_with_trouble_under_it_comes_before_the_ones_without(home: Any) -> None:
+    mixed(home)
+    fine = "44444444-aaaa-bbbb-cccc-000000000004"
+    home.session(pid=4414, sid=fine, name="aaa-app", cwd="/tmp/work/aaa")
+    home.transcript(reading(ago(seconds=5)), sid=fine, cwd="/tmp/work/aaa")
+    html = page([snapshot(home)])
+    part = sessions_part(html)
+    assert part.index("checkout-api-97") < part.index("aaa-app") < part.index("notes-4f")
+    assert "3 live, 1 needs attention and comes first" in part
 
 
 def test_how_long_an_item_has_been_in_its_state_spans_the_kept_runs(home: Any) -> None:
@@ -86,8 +120,8 @@ def test_how_long_an_item_has_been_in_its_state_spans_the_kept_runs(home: Any) -
     home.transcript(reading(ago(seconds=30)))
     runs = [snapshot(home, NOW + timedelta(minutes=minutes)) for minutes in (7, 6, 0)]  # newest first
     html = page(runs, now=NOW + timedelta(minutes=7, seconds=40))
-    attention = html[html.index("Needs attention") : html.index("Sessions <small>")]
-    assert "since 17:06" in attention
+    assert "since 17:06" in sessions_part(html)
+    assert "Claims busy but quiet for" in sessions_part(html), "a stalled row shows its evidence"
     changes = html[html.index("Recent changes") :]
     assert changes.count('class="change"') == 1
     assert "17:06" in changes and "working" in changes and "stalled" in changes
@@ -112,8 +146,7 @@ def test_the_state_and_project_filters_narrow_the_session_tree(home: Any) -> Non
     runs = [snapshot(home)]
 
     def tree(query: dict[str, str]) -> str:
-        html = page(runs, query)
-        return html[html.index("Sessions <small>") : html.index("Recent changes")]
+        return sessions_part(page(runs, query))
 
     assert "notes-4f" in tree({}) and "checkout-api-97" in tree({})
     assert "subagents: 1 running, 0 finished" in tree({})
@@ -142,7 +175,7 @@ def test_a_failed_latest_run_falls_back_to_the_last_good_snapshot(home: Any) -> 
 def test_a_quiet_machine_says_nothing_needs_attention(home: Any) -> None:
     home.session(pid=4413, status="idle", name="notes-4f", cwd=NOTES)
     home.transcript(finished(ago(hours=3)), cwd=NOTES)
-    assert "Nothing needs attention." in page([snapshot(home)])
+    assert "1 live, nothing needs attention" in page([snapshot(home)])
 
 
 def test_a_day_of_snapshots_of_fifteen_sessions_renders_quickly() -> None:

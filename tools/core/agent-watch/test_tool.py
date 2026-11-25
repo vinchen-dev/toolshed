@@ -312,6 +312,28 @@ def test_a_compaction_summary_does_not_open_a_turn(home: Any) -> None:
     assert session.turn is not None and session.turn.prompt == "tidy the changelog"
 
 
+def test_a_session_says_when_it_started(home: Any) -> None:
+    home.session(pid=4412)  # its process started two hours before the snapshot
+    home.transcript(reading(ago(seconds=10)))
+    home.transcript(finished(ago(hours=5)), sid=OTHER, written=ago(hours=5))  # ended: no process holds it
+    live, ended = sorted(home.run().sessions, key=lambda session: session.state == "ended")
+    assert (live.state, live.started) == ("working", "2026-11-23 15:00:00")
+    assert (ended.state, ended.started) == ("ended", "2026-11-23 11:50:00"), "its first record"
+
+
+def test_a_subagent_started_this_instant_is_left_out_without_a_note(home: Any) -> None:
+    building(home, BUSY)
+    folder = home.projects / "-tmp-work-checkout-api" / SID / "subagents"
+    home.subagent("new1", [], use_id="toolu_x")
+    (folder / "agent-new1.jsonl").unlink()  # registered, but its transcript is not written yet
+    home.subagent("new2", [], use_id="toolu_y")
+    (folder / "agent-new2.meta.json").write_text("", encoding="utf-8")  # its metadata is being written
+    report = home.run()
+    [session] = report.sessions
+    assert session.subagents == []
+    assert not any("unreadable" in note for note in report.notes)
+
+
 def test_an_unreadable_subagent_file_and_output_file_become_notes(home: Any) -> None:
     building(home, BUSY)
     home.subagent("bad", [], use_id="toolu_x")

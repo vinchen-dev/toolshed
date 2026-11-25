@@ -28,6 +28,7 @@ from .models import (
     SessionItem,
     SubagentItem,
     by_state,
+    folder,
     keep_states,
     subagent_counts,
 )
@@ -183,11 +184,6 @@ def run(params: Input, ctx: ToolContext) -> Report:
     )
 
 
-def _where(project: str) -> str:
-    home = str(Path.home())
-    return "~" + project[len(home) :] if project.startswith(home) else project
-
-
 def _progress(session: SessionItem) -> str:
     """How far along the session is, in a few words."""
     if session.state in ("idle", "ended", "gone"):
@@ -203,7 +199,7 @@ def _session_lines(session: SessionItem, indent: str = "  ") -> list[str]:
     prompt = session.turn.prompt if session.turn and session.turn.prompt else ""
     head = f"{indent}{session.state:12} {session.name:22} {session.agent:6} {session.model or '-':18} "
     doing = "  ".join(part for part in (session.activity or prompt, subagent_counts(session)) if part)
-    lines = [f"{head}{_where(session.project):28} {_progress(session):20} {doing}".rstrip()]
+    lines = [f"{head}{folder(session.project):28} {_progress(session):20} {doing}".rstrip()]
     deeper = indent + "  "
 
     def agents(found: list[SubagentItem], pad: str) -> None:
@@ -281,5 +277,5 @@ TOOL = Tool(
         "shed agent-watch --state stalled --state needs-input --state gone --json",
         "shed agent-watch --project ~/Desktop/Projects/tool-shed --stall-after 2m",
     ),
-    version="0.1.0",
+    version="0.2.0",
 )

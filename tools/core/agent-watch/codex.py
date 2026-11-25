@@ -38,15 +38,6 @@ class Rollout:
     pending: dict[str, claude.Pending] = field(default_factory=dict)
 
 
-def _when(value: object) -> datetime | None:
-    if not isinstance(value, str):
-        return None
-    try:
-        return datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(UTC)
-    except ValueError:
-        return None
-
-
 def _message_text(content: object) -> str:
     parts = content if isinstance(content, list) else []
     return " ".join(str(part.get("text") or "") for part in parts if isinstance(part, dict)).strip()
@@ -98,7 +89,7 @@ def read_rollout(path: Path) -> Rollout | None:
         originator=str(meta.get("originator") or ""),
         source=str(meta.get("source") or ""),
         version=str(meta.get("cli_version") or ""),
-        started=_when(meta.get("timestamp")),
+        started=claude.when(meta.get("timestamp")),
     )
     for raw in tail:
         try:
@@ -106,7 +97,9 @@ def read_rollout(path: Path) -> Rollout | None:
         except ValueError:
             continue
         if isinstance(record, dict) and isinstance(record.get("payload"), dict):
-            _apply(out, str(record.get("type") or ""), record["payload"], _when(record.get("timestamp")))
+            _apply(
+                out, str(record.get("type") or ""), record["payload"], claude.when(record.get("timestamp"))
+            )
     return out
 
 
@@ -189,6 +182,7 @@ def _item(rollout: Rollout, proc: Proc | None, name: str, scan: Scan) -> Session
         kind=rollout.originator or None,
         entrypoint=rollout.source or None,
         model=rollout.model,
+        started=t.manila(rollout.started) or None,
         state=verdict.state,
         reason=verdict.reason,
         quiet_s=int((scan.now - rollout.last_write).total_seconds()) if rollout.last_write else None,

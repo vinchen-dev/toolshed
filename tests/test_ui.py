@@ -8,7 +8,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from collections.abc import Callable, Iterator
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -223,6 +223,19 @@ def test_time_and_scalar_formatting() -> None:
         "2.5",
         "plain",
     )
+
+
+def test_the_stamp_changes_when_a_job_records_a_run_and_every_page_watches_it(server: UIServer) -> None:
+    base = server.url()
+    before = json.loads(get(f"{base}/api/stamp")[1])["stamp"]
+    now = datetime(2026, 11, 25, 9, 0, tzinfo=UTC)
+    run = RunRecord(job="echo", tool="echo-x", args={}, started=now, finished=now, duration_ms=5, ok=True)
+    server.store.save(run, keep=5)
+    after = json.loads(get(f"{base}/api/stamp")[1])["stamp"]
+    assert before != after and after == json.loads(get(f"{base}/api/stamp")[1])["stamp"]
+    html = get(base)[1]
+    assert f'<main id="main" data-stamp="{after}">' in html, "a page says which runs it was built from"
+    assert "fetch('/api/stamp'" in html, "and its script asks for the stamp and refreshes when it differs"
 
 
 def test_pages_show_the_shed_version_and_a_run_shows_the_versions_that_produced_it() -> None:

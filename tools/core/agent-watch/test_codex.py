@@ -24,6 +24,12 @@ def states(home: Any) -> list[str]:
     return [session.state for session in home.run().sessions]
 
 
+def test_a_codex_session_says_when_it_started(home: Any) -> None:
+    home.rollout(CID, [*codex_turn(ago(minutes=2)), codex_call(ago(seconds=10))], started=ago(minutes=2))
+    [session] = home.run().sessions
+    assert session.started == "2026-11-23 16:58:00"
+
+
 def test_a_codex_session_with_an_open_turn_and_fresh_writes_is_working(home: Any) -> None:
     home.rollout(CID, [*codex_turn(ago(minutes=2)), codex_call(ago(seconds=10))], started=ago(minutes=2))
     report = home.run()

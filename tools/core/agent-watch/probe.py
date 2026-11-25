@@ -8,10 +8,14 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from pathlib import Path
+from shutil import which
 
 from shed import ToolError, sh
 
 TIMEOUT_S = 10
+LSOF_PATHS = ("/usr/sbin/lsof", "/usr/bin/lsof")
+"""Where macOS and Linux keep lsof. The dashboard's launchd agent runs without /usr/sbin on its PATH."""
 _PS_COLUMNS = "pid=,ppid=,pgid=,lstart=,pcpu=,command="
 _LSTART = "%a %b %d %H:%M:%S %Y"
 
@@ -55,7 +59,8 @@ class Probe:
 
     def listening_ports(self) -> dict[int, list[int]]:
         """Listening TCP ports per pid, from one `lsof` call; lsof exits 1 when nothing listens."""
-        out = sh("lsof", ["-nP", "-iTCP", "-sTCP:LISTEN", "-Fpn"], allow_failure=True, timeout=TIMEOUT_S)
+        lsof = which("lsof") or next((path for path in LSOF_PATHS if Path(path).is_file()), "lsof")
+        out = sh(lsof, ["-nP", "-iTCP", "-sTCP:LISTEN", "-Fpn"], allow_failure=True, timeout=TIMEOUT_S)
         ports: dict[int, list[int]] = {}
         pid: int | None = None
         for line in out.stdout.splitlines():

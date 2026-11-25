@@ -6,6 +6,28 @@ in its `TOOL` definition; bump it here when its inputs or result shape change.
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-11-25
+
+### Added
+- `agent-watch` 0.2.0: each session in the result carries `started`, the time its process began, or its first
+  record once no process holds it.
+- Dashboard: an open page shows a newly recorded run within about three seconds instead of waiting for its
+  30-second refresh. Each page carries the stamp of the runs it was built from and polls `/api/stamp`.
+
+### Changed
+- Agents page: a session shows its folder, what runs it and when it started, and every subagent and command
+  shows its start time in a new Started column. The Agent column is gone; its content moved under the name.
+- Agents page: each session is a block with the subagents, commands and sessions it started listed under it, and
+  a block folds. The separate "Needs attention" table is gone: sessions that need attention, or have something
+  under them that does, come first and carry a marker, and every row shows how long it has held its state.
+
+### Fixed
+- Scheduled `agent-watch` snapshots had no listening-port information: the dashboard's launchd agent runs
+  without `/usr/sbin` on its PATH, so `lsof` was not found and a command that only serves a port could not read
+  `serving` on the Agents page. The tool now finds `lsof` where the system keeps it.
+- `agent-watch` called a subagent "unreadable" when a snapshot ran in the instant it was started. It is now
+  left out of that snapshot without a note and appears in the next one.
+
 ## [0.8.0] - 2026-11-25
 
 ### Added
@@ -185,4 +207,5 @@ in its `TOOL` definition; bump it here when its inputs or result shape change.
 | browser-fetch, product-search, social-search | 0.1.0 | first version |
 | lark-bitable, lark-app-access, mongo-query, mongo-index-diff, redis-get, session-stats, transcript-digest, graph-query, vault-recall, deployed-version, branch-diff, version-stamp, npm-deps-check, meegle-search, meegle-item | 0.1.0 | first version |
 | error-trace | 0.1.0 | first version |
+| agent-watch | 0.2.0 | `started` on each session (0.1.0 was the first version) |
 | sls-login | 0.1.0 | first version |

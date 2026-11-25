@@ -195,6 +195,16 @@ class RunStore:
         self.prune(record.job, keep)
         return path
 
+    def stamp(self) -> str:
+        """A value that changes whenever any job records a run: the newest write among the latest records."""
+        written = [0]
+        for path in self.root.glob("*/latest.json"):
+            try:
+                written.append(path.stat().st_mtime_ns)
+            except OSError:  # replaced while we looked; the next poll sees the new one
+                continue
+        return str(max(written))
+
     def latest(self, job: str) -> RunRecord | None:
         files = self._files(job)
         return self._read(files[0]) if files else None
