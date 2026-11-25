@@ -247,22 +247,17 @@ def test_pages_show_the_shed_version_and_a_run_shows_the_versions_that_produced_
 
 
 class FakeTunnelProcess:
-    def __init__(self, args: list[str]) -> None:
-        self.args, self.lines, self.returncode = args, [], None
-        self.ready, self.ended = threading.Event(), threading.Event()
+    """Stands in for cloudflared: `emit` writes a line of its output to the tunnel's log file."""
+
+    def __init__(self, args: list[str], log: Path, pid: int = 5100) -> None:
+        self.args, self.log, self.pid, self.returncode = args, log, pid, None
+        log.parent.mkdir(parents=True, exist_ok=True)
+        log.write_text("", encoding="utf-8")
+        self.ended = threading.Event()
 
     def emit(self, line: str) -> None:
-        self.lines.append(line)
-        self.ready.set()
-
-    def readline(self) -> str:
-        while True:
-            self.ready.wait()
-            if self.lines:
-                return self.lines.pop(0) + "\n"
-            if self.ended.is_set():
-                return ""
-            self.ready.clear()
+        with self.log.open("a", encoding="utf-8") as out:
+            out.write(line + "\n")
 
     def poll(self) -> int | None:
         return self.returncode
@@ -270,7 +265,6 @@ class FakeTunnelProcess:
     def terminate(self) -> None:
         self.returncode = -15
         self.ended.set()
-        self.ready.set()
 
     kill = terminate
 
@@ -301,8 +295,8 @@ def test_tunnels_page_adds_starts_shows_the_public_url_and_stops(tmp_path: Path)
 
     spawned: list[FakeTunnelProcess] = []
 
-    def spawn(args: list[str]) -> FakeTunnelProcess:
-        proc = FakeTunnelProcess(args)
+    def spawn(args: list[str], log: Path) -> FakeTunnelProcess:
+        proc = FakeTunnelProcess(args, log)
         spawned.append(proc)
         return proc
 
@@ -313,6 +307,7 @@ def test_tunnels_page_adds_starts_shows_the_public_url_and_stops(tmp_path: Path)
         binary=lambda: "/opt/homebrew/bin/cloudflared",
         probe=lambda port: connections[0],
         check_every=0.01,
+        follow_every=0.005,
     )
     tools = tmp_path / "tools"
     tools.mkdir()
@@ -369,14 +364,65 @@ def test_tunnels_page_adds_starts_shows_the_public_url_and_stops(tmp_path: Path)
         srv.stop()
 
 
+def test_a_tunnel_stays_on_when_the_dashboard_stops_and_the_next_dashboard_shows_it(tmp_path: Path) -> None:
+    from shed.tunnels import TunnelManager
+
+    spawned: list[FakeTunnelProcess] = []
+    commands: dict[int, str] = {}  # the machine's processes, as a dashboard that did not start them sees them
+
+    def spawn(args: list[str], log: Path) -> FakeTunnelProcess:
+        proc = FakeTunnelProcess(args, log)
+        spawned.append(proc)
+        commands[proc.pid] = " ".join(args)
+        return proc
+
+    def dashboard() -> UIServer:
+        manager = TunnelManager(
+            tmp_path / "tunnels.json",
+            spawn=spawn,
+            binary=lambda: "/opt/homebrew/bin/cloudflared",
+            metrics_port=lambda: 20400,
+            probe=lambda port: 1,
+            check_every=0.01,
+            follow_every=0.005,
+            command_of=commands.get,
+        )
+        (tmp_path / "tools").mkdir(exist_ok=True)
+        (tmp_path / "cron.toml").write_text("")
+        srv = UIServer(
+            ("127.0.0.1", 0),
+            cron_file=tmp_path / "cron.toml",
+            state_dir=tmp_path / "state",
+            tools_dir=tmp_path / "tools",
+            tunnels=manager,
+        )
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        return srv
+
+    first = dashboard()
+    post_form(f"{first.url()}/tunnels", target="http://localhost:3333", label="finance", start="1")
+    spawned[0].emit("INF |  https://neat-tunnel-example.trycloudflare.com  |")
+    wait_for(lambda: '<span class="pill ok">running</span>' in get(f"{first.url()}/tunnels")[1])
+    first.stop()
+    assert spawned[0].poll() is None, "stopping the dashboard does not stop the tunnel"
+
+    second = dashboard()
+    try:
+        wait_for(lambda: '<span class="pill ok">running</span>' in get(f"{second.url()}/tunnels")[1])
+        html = get(f"{second.url()}/tunnels")[1]
+        assert 'data-copy="https://neat-tunnel-example.trycloudflare.com"' in html
+        assert "on until you stop them" in html and len(spawned) == 1
+    finally:
+        second.tunnels.stop_all()
+        second.stop()
+
+
 def test_tunnel_to_the_dashboard_itself_is_flagged_and_install_button_shows_when_missing(
     tmp_path: Path,
 ) -> None:
     from shed.tunnels import TunnelManager
 
-    manager = TunnelManager(
-        tmp_path / "tunnels.json", spawn=lambda a: FakeTunnelProcess(a), binary=lambda: None
-    )
+    manager = TunnelManager(tmp_path / "tunnels.json", spawn=FakeTunnelProcess, binary=lambda: None)
     tools = tmp_path / "tools"
     tools.mkdir()
     cron = tmp_path / "cron.toml"

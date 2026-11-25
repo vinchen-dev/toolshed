@@ -25,8 +25,8 @@ shed bdo-incidents --env prod --raw prod=~/Downloads/50a50-abc.csv --since "2026
 - Always pass Manila times. The output starts with `now ... Manila` so you can check the clock; `TZ=Asia/Manila date -v-1H "+%Y-%m-%d %H:%M"` turns "an hour ago" into one.
 - `--json` returns the same data as structured JSON (incidents, totals, events) when you need to compute rather than read.
 - `--raw ENV=FILE` reads a saved pull instead of SLS: either `shed sls-logs` text or an SLS console `.csv` export (the `50a50-*.csv` downloads). When the user hands you several exports for one environment, merge them first: `shed sls-csv --path a.csv --path b.csv > pull.txt`, then `--raw prod=pull.txt`.
-- Credentials come from `~/.config/aliyun-sls.env` (see the tool-shed README). A 24-hour pull takes a few seconds per environment, up to a minute on a slow day. macOS has no `timeout` command, so do not wrap it in one.
-- Exit code 1 with "no matching events after 3 tries" means SLS returned nothing even after retries. Rerun once, and check the credentials file, before reporting anything. Never report it as "no change". In `--events-since` mode, "no change" means the pull worked and nothing happened in the window.
+- A live pull needs the SLS sign-in. When the tool says it is missing or expired, ask the user to run `shed sls-login` (a browser window opens for them to sign in), then rerun; `--raw` with a saved pull needs none. A 24-hour pull takes a few seconds per environment, up to a minute on a slow day. macOS has no `timeout` command, so do not wrap it in one.
+- Exit code 1 with "no matching events after 3 tries" means SLS returned nothing even after retries. Rerun once, and check that `shed sls-logs --minutes 5` still answers, before reporting anything. Never report it as "no change". In `--events-since` mode, "no change" means the pull worked and nothing happened in the window.
 
 ## Scheduled checks
 

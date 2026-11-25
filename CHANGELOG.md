@@ -6,6 +6,34 @@ in its `TOOL` definition; bump it here when its inputs or result shape change.
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-11-25
+
+### Added
+- `sls-login` (SN): sign in to Alibaba Cloud SLS through the company single sign-on. It opens a browser window
+  where you sign in, exchanges the SAML response for temporary credentials (STS AssumeRoleWithSAML) and saves
+  them, owner-only, in `~/.config/aliyun-sls-session.json`. Needs `SLS_LOGIN_URL` in `~/.config/aliyun-sls.env`
+  or `--url`. Never scheduled: it needs a person at the screen. The sign-in's cookies are kept, owner-only, in
+  `~/.config/shed/browser/sls-login/state.json`, so the single sign-on stays signed in between runs.
+
+### Changed
+- `sls-logs`, and with it `error-trace`, `deployed-version` and `bdo-incidents`, use the `sls-login` session
+  instead of an AccessKey pair, because Alibaba Cloud access moved to single sign-on and the key no longer
+  exists. When the session runs out (the role allows 60 minutes) the tool renews it by itself with a windowless
+  browser, for as long as the single sign-on keeps you signed in; a failed renewal is not tried again for ten
+  minutes. Without a session, or when it cannot be renewed, they stop with a message that says to run
+  `shed sls-login`. The AccessKey route is kept and switched off; `SLS_AUTH=key` in `~/.config/aliyun-sls.env`
+  turns it back on. Inputs and results are unchanged.
+- Tunnels stay on until you stop them. cloudflared now runs detached from the dashboard, so `shed start` and
+  `shed update` leave a tunnel running with the same public URL and the new dashboard picks it up; before, every
+  restart stopped it. A tunnel that was on is started again, with a new URL, when the dashboard starts and its
+  process is gone, as after a reboot. `shed start` names the tunnels that kept running, and `shed cron
+  uninstall` stops them.
+
+### Fixed
+- `shed update` also installs Chromium for the global `shed`, through that install's own Playwright. Before, only
+  the project venv got it, so a global `shed` that had resolved a newer Playwright could not open a browser
+  ("Executable doesn't exist"), which stopped `sls-login` and the research tools when run as `shed`.
+
 ## [0.7.0] - 2026-11-25
 
 ### Added
@@ -157,3 +185,4 @@ in its `TOOL` definition; bump it here when its inputs or result shape change.
 | browser-fetch, product-search, social-search | 0.1.0 | first version |
 | lark-bitable, lark-app-access, mongo-query, mongo-index-diff, redis-get, session-stats, transcript-digest, graph-query, vault-recall, deployed-version, branch-diff, version-stamp, npm-deps-check, meegle-search, meegle-item | 0.1.0 | first version |
 | error-trace | 0.1.0 | first version |
+| sls-login | 0.1.0 | first version |

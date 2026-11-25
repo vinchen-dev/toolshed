@@ -1,23 +1,19 @@
 """Cloudflare quick tunnels started from the dashboard: expose a local URL at a random trycloudflare.com
-address for as long as the dashboard runs. Rows (target, label) persist; processes die with the dashboard.
-
-Health comes from cloudflared's own ready endpoint on a local metrics port, which counts its live
-Cloudflare connections. The launcher, binary lookup, port picker and health probe are seams, so tests
-never run cloudflared."""
+address until it is stopped. Rows persist with whether each should be on and the process that serves it.
+The cloudflared processes outlive the dashboard: the next one picks them up, or starts them again when
+they are gone, as after a reboot. The launcher, process lookup, binary lookup, port picker and health
+probe are seams, so tests never run cloudflared."""
 
 from __future__ import annotations
 
 import json
-import re
+import os
 import secrets
-import socket
-import subprocess
+import sys
 import threading
 import time
-from collections import deque
 from collections.abc import Callable
 from datetime import datetime
-from http.client import HTTPConnection, HTTPException
 from pathlib import Path
 from shutil import which
 from typing import Any, Literal
@@ -27,17 +23,34 @@ from pydantic import BaseModel
 
 from shed.lib.manila import MANILA
 from shed.lib.shell import sh
+from shed.tunnel_process import (
+    Adopted,
+    Live,
+    command_line,
+    end,
+    free_port,
+    ready_connections,
+    spawn_cloudflared,
+)
 
-PUBLIC_URL = re.compile(r"https://[a-z0-9-]+\.trycloudflare\.com")
-ERROR_LINE = re.compile(r"^\S+\s+ERR\s+(?P<message>.+)$")
 LOCAL_HOSTS = ("localhost", "127.0.0.1", "0.0.0.0", "::1", "[::1]", "host.docker.internal")
 State = Literal["stopped", "starting", "running", "unreachable", "failed"]
 InstallState = Literal["installed", "missing", "installing", "failed", "no-brew"]
 CHECK_EVERY_S = 3.0
+FOLLOW_EVERY_S = 0.2
+"""How often a tunnel's log is read for new lines."""
 SILENT_CHECKS = 5
 """Unanswered health checks after the URL banner before the banner alone counts as running."""
 SLEEP_GAP_S = 30.0
 """A wall-clock jump this much longer than the check interval means the Mac slept between two checks."""
+
+
+class TunnelRun(BaseModel):
+    """The cloudflared process that serves a tunnel, kept so that a later dashboard can pick it up."""
+
+    pid: int
+    metrics_port: int
+    started: datetime
 
 
 class TunnelRow(BaseModel):
@@ -45,6 +58,9 @@ class TunnelRow(BaseModel):
     target: str
     label: str | None = None
     created: datetime
+    on: bool = False
+    """Whether it should be running: start sets it, stop clears it, a starting dashboard acts on it."""
+    run: TunnelRun | None = None
 
 
 class TunnelStatus(BaseModel):
@@ -66,61 +82,8 @@ class TunnelStatus(BaseModel):
     """When unreachable: how long the Mac slept between those times, since the connection was last up."""
 
 
-class _Live:
-    """A started tunnel: the process, the URL once announced, the last lines it printed."""
-
-    def __init__(self, process: Any, metrics_port: int) -> None:
-        self.process = process
-        self.metrics_port = metrics_port
-        self.public_url: str | None = None
-        self.since: datetime | None = None
-        self.error: str | None = None
-        self.tail: deque[str] = deque(maxlen=20)
-        self.done = False
-        """Set once the process output closed, which is when cloudflared has exited."""
-        self.connections: int | None = None
-        self.connected_once = False
-        self.changed: datetime | None = None
-        """When the connection count last went between zero and non-zero."""
-        self.silent_checks = 0
-        self.stopping = threading.Event()
-        self.last_error: str | None = None
-        self.up_at: float | None = None
-        """Wall clock of the last check that found a Cloudflare connection."""
-        self.sleep: tuple[float, float, float] | None = None
-        """(first sleep start, last wake, seconds asleep) for the sleeps since `up_at`."""
-
-    def note_sleep(self, start: float, end: float) -> None:
-        if self.sleep is None or (self.up_at is not None and self.sleep[1] < self.up_at):
-            self.sleep = (start, end, end - start)
-        else:
-            self.sleep = (self.sleep[0], end, self.sleep[2] + end - start)
-
-
-def spawn_cloudflared(args: list[str]) -> Any:
-    return subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
-
-
 def cloudflared_binary() -> str | None:
     return which("cloudflared")
-
-
-def free_port() -> int:
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        return int(s.getsockname()[1])
-
-
-def ready_connections(port: int) -> int | None:
-    """Ask cloudflared's /ready endpoint how many Cloudflare connections it holds; it answers 503 at zero."""
-    conn = HTTPConnection("127.0.0.1", port, timeout=2)
-    try:
-        conn.request("GET", "/ready")
-        return int(json.loads(conn.getresponse().read())["readyConnections"])
-    except (OSError, HTTPException, ValueError, KeyError, TypeError):
-        return None
-    finally:
-        conn.close()
 
 
 def _check_target(target: str) -> str:
@@ -131,10 +94,6 @@ def _check_target(target: str) -> str:
     if parsed.hostname not in LOCAL_HOSTS:
         raise ValueError("only local targets are tunnelled (localhost, 127.0.0.1, ...)")
     return target.rstrip("/")
-
-
-def _last(live: _Live) -> str | None:
-    return next((t for t in reversed(live.tail) if t), None)
 
 
 def now() -> datetime:
@@ -150,12 +109,15 @@ class TunnelManager:
         self,
         state_file: Path,
         *,
-        spawn: Callable[[list[str]], Any] = spawn_cloudflared,
+        spawn: Callable[[list[str], Path], Any] = spawn_cloudflared,
         binary: Callable[[], str | None] = cloudflared_binary,
         metrics_port: Callable[[], int] = free_port,
         probe: Callable[[int], int | None] = ready_connections,
         check_every: float = CHECK_EVERY_S,
+        follow_every: float = FOLLOW_EVERY_S,
         clock: Callable[[], float] = time.time,
+        command_of: Callable[[int], str | None] = command_line,
+        signal: Callable[[int, int], None] = os.kill,
     ) -> None:
         self.state_file = state_file
         self._spawn = spawn
@@ -163,9 +125,14 @@ class TunnelManager:
         self._metrics_port = metrics_port
         self._probe = probe
         self._check_every = check_every
+        self._follow_every = follow_every
+        self._liveness_every = max(1, round(check_every / follow_every))
+        """Idle reads of a tunnel's log between two checks that its process is still alive."""
         self._clock = clock
+        self._command_of = command_of
+        self._signal = signal
         self._rows: list[TunnelRow] = self._load()
-        self._live: dict[str, _Live] = {}
+        self._live: dict[str, Live] = {}
         self._lock = threading.Lock()
         self._install: InstallState | None = None
         self._install_error: str | None = None
@@ -210,8 +177,13 @@ class TunnelManager:
 
     def remove(self, tunnel_id: str) -> None:
         self.stop(tunnel_id)
-        self._rows = [r for r in self._rows if r.id != tunnel_id]
-        self._save()
+        with self._lock:
+            self._rows = [r for r in self._rows if r.id != tunnel_id]
+            self._save()
+        self._log(tunnel_id).unlink(missing_ok=True)
+
+    def _log(self, tunnel_id: str) -> Path:
+        return self.state_file.parent / "tunnels" / f"{tunnel_id}.log"
 
     # --- processes --------------------------------------------------------------------------------
 
@@ -230,32 +202,47 @@ class TunnelManager:
                 )
             port = self._metrics_port()
             metrics = f"127.0.0.1:{port}"
+            log = self._log(tunnel_id)
             process = self._spawn(
-                ["cloudflared", "tunnel", "--no-autoupdate", "--metrics", metrics, "--url", row.target]
+                ["cloudflared", "tunnel", "--no-autoupdate", "--metrics", metrics, "--url", row.target], log
             )
-            live = _Live(process, port)
+            live = Live(process, port, log)
             self._live[tunnel_id] = live
-        for job, name in ((self._pump, "tunnel"), (self._watch, "tunnel-health")):
+            row.on, row.run = True, TunnelRun(pid=process.pid, metrics_port=port, started=now())
+            self._save()
+        self._follow_and_watch(live, tunnel_id)
+
+    def _follow_and_watch(self, live: Live, tunnel_id: str) -> None:
+        for job, name in ((self._follow, "tunnel"), (self._watch, "tunnel-health")):
             threading.Thread(target=job, args=(live,), daemon=True, name=f"{name}-{tunnel_id}").start()
 
-    def _pump(self, live: _Live) -> None:
-        """Follow the process output: the public URL arrives in a boxed banner; the tail explains failures."""
-        stream = getattr(live.process, "stdout", None) or live.process
-        while True:
-            line = stream.readline()
-            if not line:
-                break
-            text = line.rstrip()
-            live.tail.append(text)
-            if live.public_url is None and (m := PUBLIC_URL.search(text)):
-                live.public_url, live.since = m.group(0), now()
-            if m := ERROR_LINE.match(text):
-                live.last_error = m.group("message")[:300]
+    def _follow(self, live: Live) -> None:
+        """Read the tunnel's log as it grows: the public URL arrives in a boxed banner, and the last lines
+        explain a failure. Ends when cloudflared has exited, or when this dashboard lets go of the tunnel."""
+        idle, pending = 0, ""
+        try:
+            with live.log.open(encoding="utf-8", errors="replace") as stream:
+                while True:
+                    chunk = stream.readline()
+                    if chunk.endswith("\n"):
+                        live.note((pending + chunk).rstrip(), now())
+                        pending = ""
+                        continue
+                    pending += chunk  # the start of a line cloudflared is still writing, or nothing
+                    idle += 1
+                    if idle % self._liveness_every == 0 and live.process.poll() is not None:
+                        break
+                    if live.stopping.wait(self._follow_every):
+                        return
+                for line in (pending + stream.read()).splitlines():  # what it wrote on its way out
+                    live.note(line.rstrip(), now())
+        except OSError as exc:
+            live.error = f"cannot read {live.log}: {exc.strerror or exc}"
         if live.public_url is None and live.error is None:
-            live.error = _last(live) or "cloudflared exited before announcing a URL"
+            live.error = live.last() or "cloudflared exited before announcing a URL"
         live.done = True
 
-    def _watch(self, live: _Live) -> None:
+    def _watch(self, live: Live) -> None:
         """Poll the ready endpoint once the URL is out, until cloudflared exits or the tunnel is stopped.
         A sleeping process cannot see the sleep, but the wall clock jumps between two checks."""
         last = self._clock()
@@ -271,7 +258,9 @@ class TunnelManager:
                 live.silent_checks += 1
                 continue
             if live.connections is None or (live.connections > 0) != (count > 0):
-                live.changed = now()
+                # a tunnel picked up from an earlier dashboard was connected before this one looked
+                picked_up = live.adopted and live.connections is None and count > 0
+                live.changed = live.since if picked_up else now()
                 if count > 0:
                     live.last_error = None
             live.connections = count
@@ -280,26 +269,68 @@ class TunnelManager:
                 live.up_at = wall
 
     def stop(self, tunnel_id: str) -> None:
+        """Stop the tunnel and record that it is off. Its process may be one an earlier dashboard left."""
         with self._lock:
             live = self._live.pop(tunnel_id, None)
-        if live is None:
-            return
-        live.stopping.set()
-        if live.process.poll() is None:
-            live.process.terminate()
-            try:
-                live.process.wait(timeout=5)
-            except Exception:
-                live.process.kill()
+            row = next((r for r in self._rows if r.id == tunnel_id), None)
+            process = live.process if live is not None else self._recorded(row)
+            if row is not None and (row.on or row.run is not None):
+                row.on, row.run = False, None
+                self._save()
+        if live is not None:
+            live.stopping.set()
+        if process is not None:
+            end(process)
 
     def restart(self, tunnel_id: str) -> None:
         """Stop and start again, which makes a new quick tunnel with a new public URL."""
         self.stop(tunnel_id)
         self.start(tunnel_id)
 
-    def stop_all(self) -> None:
-        for tunnel_id in list(self._live):
-            self.stop(tunnel_id)
+    def stop_all(self) -> list[TunnelRow]:
+        """Stop every tunnel that is on, whichever dashboard started it; returns the rows it stopped."""
+        on = [row for row in self.rows() if row.on or row.id in self._live]
+        for row in on:
+            self.stop(row.id)
+        return on
+
+    def close(self) -> None:
+        """Let go of every tunnel without stopping it: the processes keep running for the next dashboard."""
+        with self._lock:
+            lives, self._live = list(self._live.values()), {}
+        for live in lives:
+            live.stopping.set()
+
+    def resume(self) -> None:
+        """Bring back the tunnels that should be on: pick up a cloudflared an earlier dashboard left
+        running, or start a new one, with a new public URL, when it is gone (as after a reboot)."""
+        for row in self.rows():
+            if not row.on or row.id in self._live:
+                continue
+            process = self._recorded(row)
+            if process is not None and row.run is not None and self._log(row.id).is_file():
+                self._adopt(row.id, row.run, process)
+                continue
+            if process is not None:
+                end(process)  # still running, but its log is gone, so its URL cannot be read
+            try:
+                self.start(row.id)
+            except (RuntimeError, OSError) as exc:  # it stays off, and the page still offers Start
+                print(f"tunnels: could not start {row.target}: {exc}", file=sys.stderr)
+
+    def _adopt(self, tunnel_id: str, run: TunnelRun, process: Adopted) -> None:
+        live = Live(process, run.metrics_port, self._log(tunnel_id))
+        live.adopted, live.since, live.connected_once = True, run.started, True
+        with self._lock:
+            self._live[tunnel_id] = live
+        self._follow_and_watch(live, tunnel_id)
+
+    def _recorded(self, row: TunnelRow | None) -> Adopted | None:
+        """The process the row says serves it, when that process still runs the tunnel."""
+        if row is None or row.run is None:
+            return None
+        process = Adopted(row.run.pid, row.run.metrics_port, self._command_of, self._signal)
+        return process if process.poll() is None else None
 
     def status(self, tunnel_id: str) -> TunnelStatus:
         row = self._row(tunnel_id)
@@ -308,8 +339,9 @@ class TunnelManager:
         if live is None:
             return TunnelStatus(**base, state="stopped")
         if live.done:
-            exited = f"exited with {live.process.poll()}"
-            return TunnelStatus(**base, state="failed", error=live.error or _last(live) or exited)
+            return TunnelStatus(
+                **base, state="failed", error=live.error or live.last() or "cloudflared exited"
+            )
         if live.public_url is None:
             return TunnelStatus(**base, state="starting")
         url, count = live.public_url, live.connections

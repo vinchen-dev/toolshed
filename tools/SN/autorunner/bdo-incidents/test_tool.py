@@ -25,6 +25,7 @@ def frozen_clock(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setattr(module, "now_manila", lambda: NOW)
     monkeypatch.setattr(module, "sleep", lambda _: None)
     monkeypatch.setattr(sls_module, "ENV_FILE", tmp_path / "absent.env")
+    monkeypatch.setenv("SLS_AUTH", "key")
     monkeypatch.setenv("ALIBABA_CLOUD_ACCESS_KEY_ID", "id")
     monkeypatch.setenv("ALIBABA_CLOUD_ACCESS_KEY_SECRET", "secret")
 

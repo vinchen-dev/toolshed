@@ -1,8 +1,9 @@
 """`shed update`: one command that brings this machine up to date after a pull or a `uv add`.
 
 Syncs the venv, reinstalls the global `shed` (so it sees new dependencies), installs Playwright's Chromium
-when it is a dependency, links every skill, and registers every tool group found under tools/ (plus the job
-tools) as its own MCP server in Claude Code at user scope. Every step is idempotent."""
+for the venv and for the global `shed` when it is a dependency, links every skill, and registers every tool
+group found under tools/ (plus the job tools) as its own MCP server in Claude Code at user scope. Every step
+is idempotent."""
 
 from __future__ import annotations
 
@@ -12,8 +13,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from shutil import which
 
+from shed.cron import shed_executable
 from shed.job_tools import JOBS_GROUP
-from shed.lib.errors import EXIT_FAILURE, EXIT_OK
+from shed.lib.errors import EXIT_FAILURE, EXIT_OK, ToolError
 from shed.lib.shell import sh
 from shed.registry import SHED_ROOT, TOOLS_DIR, list_groups
 from shed.skills import CLAUDE_SKILLS_DIR, SKILLS_DIR, link_skills
@@ -83,13 +85,30 @@ AGENTS: dict[str, Callable[[str, str], tuple[Step, Step]]] = {
 """Agent CLIs that can hold an MCP server registration, and how each adds and removes one."""
 
 
+def wants_browser(browser: bool | None) -> bool:
+    """Whether to install Chromium: as asked, or by default whenever Playwright is a dependency."""
+    return importlib.util.find_spec("playwright") is not None if browser is None else browser
+
+
+def global_browser_step() -> Step | None:
+    """Chromium for the global `shed`, or None when that install has no Playwright.
+
+    The global install resolves its own Playwright, which can want a newer Chromium build than the venv's."""
+    try:
+        playwright = shed_executable().resolve().parent / "playwright"
+    except ToolError:
+        return None
+    if not playwright.is_file():
+        return None
+    return Step("install Chromium for the global shed", str(playwright), ("install", "chromium"), True)
+
+
 def plan(
     tools_dir: Path = TOOLS_DIR, *, browser: bool | None = None, cloudflared: bool | None = None
 ) -> list[Step]:
     """The plain commands `shed update` runs, in order. `browser` defaults to Playwright being installed,
     `cloudflared` to it being missing while Homebrew is present (the dashboard's Tunnels page needs it)."""
-    if browser is None:
-        browser = importlib.util.find_spec("playwright") is not None
+    browser = wants_browser(browser)
     if cloudflared is None:
         cloudflared = which("cloudflared") is None and which("brew") is not None
     steps = [
@@ -142,6 +161,8 @@ def run_update(
     if dry_run:
         for step in steps:
             out(f"would run: {step.text()}")
+        if wants_browser(browser):
+            out("would install Chromium for the global shed with its own Playwright")
         for reg in wanted:
             out(f"would run: {reg.remove.text()}")
             out(f"would run: {reg.add.text()}")
@@ -151,6 +172,14 @@ def run_update(
     for step in steps:
         result = sh(step.cmd, step.args, cwd=SHED_ROOT, allow_failure=step.allow_failure)
         out(f"{step.label}: {'ok' if result.code == 0 else 'failed'}")
+    if wants_browser(browser):
+        # Looked up only now: the reinstall step above is what creates the global shed on a new machine.
+        step = global_browser_step()
+        if step is None:
+            out("install Chromium for the global shed: skipped (no global `shed` with Playwright on PATH)")
+        else:
+            result = sh(step.cmd, step.args, cwd=SHED_ROOT, allow_failure=step.allow_failure)
+            out(f"{step.label}: {'ok' if result.code == 0 else 'failed'}")
     for reg in wanted:
         sh(reg.remove.cmd, reg.remove.args, cwd=SHED_ROOT, allow_failure=True)
         added = sh(reg.add.cmd, reg.add.args, cwd=SHED_ROOT, allow_failure=True)

@@ -54,6 +54,7 @@ Design decisions and their reasons: `docs/DESIGN.md`. Usage and conventions: `RE
 - Discover tools with `shed list --json` (name, description, input schema) and run one with `shed <tool> --flags --json`; results are on stdout, logs on stderr, exit 1 means the tool failed, 2 bad usage. Over MCP the same tools are served by `shed mcp --group <folder>` and registered by `shed update`.
 - Judgment about when to run which tool and how to report lives in `skills/<group>/<name>/SKILL.md`; read the matching one before using a tool it covers (`shed skills` lists them). Claude Code loads them automatically once linked; other agents read the file.
 - The research tools (`product-search`, `social-search`, `browser-fetch`) are anonymous by default. Platforms that need a login are skipped unless the run has `--use-login`; never add that flag to a scheduled job, never try to sign in on the user's behalf, and when a note says "no saved session" tell the user to run `shed browser-fetch --login <site>` themselves.
+- The SLS tools (`sls-logs`, `error-trace`, `deployed-version`, `bdo-incidents`) need the session `shed sls-login` saves. When one says the SLS sign-in is missing or expired, ask the user to run `shed sls-login` (it opens a browser window where they sign in), then rerun; never add `sls-login` to a scheduled job.
 - Before pulling live data for a topic a cron job already covers, read `shed runs <job> --last` (or the `job-result` MCP tool).
 
 ## Protected paths

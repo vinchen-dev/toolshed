@@ -2,7 +2,7 @@
 
 PMS2.0_PH logs `[Process N] Initializing <script> (version: <releaseVersion>)` and
 `[Process N] NODE_VERSION=v22.x, NODE_MODULE_VERSION=127` every time a process starts. The lines are pulled
-through the sls-logs tool (credentials in ~/.config/aliyun-sls.env), the newest line per container wins,
+through the sls-logs tool (sign in first with `shed sls-login`), the newest line per container wins,
 and the result is set beside the local checkout (branch, HEAD, latest tag, package.json version).
 """
 

@@ -90,7 +90,7 @@ Expected scale: one developer on one Mac. The dashboard is a localhost viewer, n
 
 ## Security
 
-- Must: No secrets, keys or credentials in code or fixtures. Credentials live in `~/.config/*.env` files read through `shed.lib.env`. <!-- src: docs/DESIGN.md section 6 -->
+- Must: No secrets, keys or credentials in code or fixtures. Credentials live in `~/.config/*.env` files read through `shed.lib.env`. The one exception is the SLS sign-in session, which `sls-login` writes owner-only to `~/.config/aliyun-sls-session.json` and `sls-logs` reads. <!-- src: docs/DESIGN.md sections 6 and 16 -->
 - Must: Never build shell commands, queries or file paths by concatenating untrusted input. `sh()` takes an argument list. <!-- src: default; code 0 uses of shell=True, eval or exec -->
 - Must: Don't log, return or record secrets or tokens. A tool that returns log lines or other free text cuts or withholds lines that carry credentials. <!-- src: code (log-watch redaction, error-trace withheld lines) -->
 - Must: The research tools never sign in on the user's behalf, never store or type a password, and never use a logged-in profile from a scheduled job. <!-- src: AGENTS.md -->

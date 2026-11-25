@@ -124,7 +124,7 @@ def test_start_starts_the_agent_and_waits_for_the_dashboard(
     assert fake.installs == 1 and out.err == ""
 
 
-def test_start_restarts_after_running_jobs_finish_and_names_the_stopped_tunnels(
+def test_start_restarts_after_running_jobs_finish_and_names_the_tunnels_that_kept_running(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], no_sleep: None
 ) -> None:
     fake = FakeDashboard(up=True, busy_polls=3, permanent=False)
@@ -133,10 +133,41 @@ def test_start_restarts_after_running_jobs_finish_and_names_the_stopped_tunnels(
     out = capsys.readouterr()
     assert out.out.splitlines() == [
         "Restarted the dashboard and scheduler (shed 0.2.0): http://127.0.0.1:8765",
-        "Tunnels stopped by the restart: finance. Start them again at http://127.0.0.1:8765/tunnels; "
-        "each gets a new public URL.",
+        "Tunnels kept running through the restart: finance.",
     ]
     assert "waiting for bdo-session to finish" in out.err and "&& shed start" in out.err
+
+
+def test_start_says_which_tunnels_did_not_come_back_and_which_are_on_after_a_cold_start(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], no_sleep: None
+) -> None:
+    use(monkeypatch, FakeDashboard(up=True))
+    open_now = iter([["finance", "web"], ["finance"]])  # before the restart, then after it
+    monkeypatch.setattr(cli, "_open_tunnels", lambda: next(open_now))
+    assert cli.main(["start"]) == 0
+    assert capsys.readouterr().out.splitlines()[1:] == [
+        "Tunnels kept running through the restart: finance.",
+        "Tunnels that did not come back: web. Start them again at http://127.0.0.1:8765/tunnels; "
+        "each gets a new public URL.",
+    ]
+
+    use(monkeypatch, FakeDashboard(up=False), tunnels=["finance"])  # after a reboot: nothing was running
+    assert cli.main(["start"]) == 0
+    assert capsys.readouterr().out.splitlines()[1:] == [
+        "Tunnels on: finance. Their public URLs are at http://127.0.0.1:8765/tunnels."
+    ]
+
+
+def test_uninstalling_the_agent_stops_the_tunnels_it_left_running(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(cli, "uninstall_agent", lambda: True)
+    monkeypatch.setattr(cli, "_stop_tunnels", lambda: ["finance"])
+    assert cli.main(["cron", "uninstall"]) == 0
+    assert capsys.readouterr().out.splitlines() == [
+        "Removed the launchd agent.",
+        "Stopped the tunnels it left running: finance.",
+    ]
 
 
 def test_start_fails_when_the_dashboard_never_answers_and_rejects_arguments(

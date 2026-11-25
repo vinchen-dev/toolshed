@@ -36,6 +36,7 @@ from shed.lib.output import render_result, to_json
 from shed.registry import list_groups, list_tool_names, load_all_tools, load_tool
 from shed.scaffold import scaffold_tool
 from shed.skills import CLAUDE_SKILLS_DIR, link_skills, list_skills
+from shed.tunnels import TunnelManager
 from shed.ui import DEFAULT_HOST, DEFAULT_PORT, serve_ui
 
 JOB_WAIT_S = 120.0
@@ -288,6 +289,8 @@ def _cmd_cron(rest: Sequence[str]) -> int:
         return EXIT_OK
     if sub == "uninstall":
         _out("Removed the launchd agent." if uninstall_agent() else "No agent installed.")
+        if stopped := _stop_tunnels():
+            _out(f"Stopped the tunnels it left running: {', '.join(stopped)}.")
         return EXIT_OK
     raise UsageError(
         "Usage: shed cron [--json] | shed cron run [job ...] [--force] | shed cron install | uninstall"
@@ -326,6 +329,29 @@ def _open_tunnels() -> list[str]:
     ]
 
 
+def _report_tunnels(before: list[str], after: list[str], restarted: bool) -> None:
+    """Say which tunnels are on behind the new dashboard, and which ones the restart lost."""
+    if not restarted:
+        if after:
+            _out(f"Tunnels on: {', '.join(after)}. Their public URLs are at {_dashboard_url()}/tunnels.")
+        return
+    kept = [name for name in before if name in after]
+    lost = [name for name in before if name not in after]
+    if kept:
+        _out(f"Tunnels kept running through the restart: {', '.join(kept)}.")
+    if lost:
+        _out(
+            f"Tunnels that did not come back: {', '.join(lost)}. Start them again at "
+            f"{_dashboard_url()}/tunnels; each gets a new public URL."
+        )
+
+
+def _stop_tunnels() -> list[str]:
+    """Stop the tunnels the dashboard left running: once the agent is gone nothing else would."""
+    stopped = TunnelManager(STATE_DIR / "tunnels.json").stop_all()
+    return [row.label or row.target for row in stopped]
+
+
 def _wait_for_dashboard(old_pid: object) -> dict[str, Any] | None:
     """The new dashboard's /health once it answers from a process other than the one replaced."""
     deadline = time.monotonic() + DASHBOARD_START_S
@@ -354,11 +380,7 @@ def _cmd_start(rest: Sequence[str]) -> int:
         )
     verb = "Restarted" if before is not None else "Started"
     _out(f"{verb} the dashboard and scheduler (shed {after.get('version', '?')}): {_dashboard_url()}")
-    if tunnels:
-        _out(
-            f"Tunnels stopped by the restart: {', '.join(tunnels)}. Start them again at "
-            f"{_dashboard_url()}/tunnels; each gets a new public URL."
-        )
+    _report_tunnels(tunnels, _open_tunnels(), restarted=before is not None)
     if not permanent:
         _warn_not_permanent()
     return EXIT_OK

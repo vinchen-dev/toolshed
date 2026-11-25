@@ -1,48 +1,42 @@
 from __future__ import annotations
 
 import json
+import signal
 import threading
 import time
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from collections.abc import Callable
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
 import pytest
 
 from shed import ShResult, tunnels
+from shed.lib.manila import MANILA
 from shed.tunnels import TunnelManager
 
 URL_LINE = "2026-11-04T10:00:00Z INF |  https://brave-lamp-quick-tunnel.trycloudflare.com   |"
+NEW_URL_LINE = "2026-11-25T09:00:00Z INF |  https://calm-river-quick-tunnel.trycloudflare.com   |"
 
 
 class FakeProcess:
-    """Stands in for the cloudflared process: its output lines arrive through `emit`."""
+    """Stands in for the cloudflared process: `emit` writes its output lines to the tunnel's log file."""
 
-    def __init__(self, args: list[str]) -> None:
-        self.args = args
-        self.lines: list[str] = []
-        self.ready = threading.Event()
+    def __init__(self, args: list[str], log: Path, pid: int = 4100) -> None:
+        self.args, self.log, self.pid = args, log, pid
+        log.parent.mkdir(parents=True, exist_ok=True)
+        log.write_text("", encoding="utf-8")
         self.ended = threading.Event()
         self.returncode: int | None = None
         self.terminated = False
 
     def emit(self, line: str) -> None:
-        self.lines.append(line)
-        self.ready.set()
+        with self.log.open("a", encoding="utf-8") as out:
+            out.write(line + "\n")
 
     def end(self, code: int) -> None:
         self.returncode = code
         self.ended.set()
-        self.ready.set()
-
-    def readline(self) -> str:
-        while True:
-            self.ready.wait()
-            if self.lines:
-                return self.lines.pop(0) + "\n"
-            if self.ended.is_set():
-                return ""
-            self.ready.clear()
 
     def poll(self) -> int | None:
         return self.returncode
@@ -57,6 +51,23 @@ class FakeProcess:
     def wait(self, timeout: float | None = None) -> int:
         self.ended.wait(timeout)
         return self.returncode or 0
+
+
+class FakeMachine:
+    """The machine's processes as a dashboard that did not start them sees them: a command line per pid."""
+
+    def __init__(self) -> None:
+        self.commands: dict[int, str] = {}
+        self.signals: list[tuple[int, int]] = []
+
+    def command_of(self, pid: int) -> str | None:
+        return self.commands.get(pid)
+
+    def signal(self, pid: int, sig: int) -> None:
+        if pid not in self.commands:
+            raise ProcessLookupError(pid)
+        self.signals.append((pid, sig))
+        del self.commands[pid]
 
 
 class FakeHealth:
@@ -97,27 +108,44 @@ def health() -> FakeHealth:
 
 
 @pytest.fixture
-def manager(
+def machine() -> FakeMachine:
+    return FakeMachine()
+
+
+@pytest.fixture
+def make_manager(
     tmp_path: Path,
     spawned: list[FakeProcess],
     health: FakeHealth,
     clock: FakeClock,
+    machine: FakeMachine,
     monkeypatch: pytest.MonkeyPatch,
-) -> TunnelManager:
-    def spawn(args: list[str]) -> FakeProcess:
-        proc = FakeProcess(args)
+) -> Callable[[], TunnelManager]:
+    """Each call is one dashboard's manager over the same state folder and the same machine."""
+
+    def spawn(args: list[str], log: Path) -> FakeProcess:
+        proc = FakeProcess(args, log, pid=4100 + len(spawned))
         spawned.append(proc)
+        machine.commands[proc.pid] = " ".join(args)
         return proc
 
     monkeypatch.setattr(tunnels, "which", lambda name: f"/opt/homebrew/bin/{name}")
-    return TunnelManager(
+    return lambda: TunnelManager(
         tmp_path / "state" / "tunnels.json",
         spawn=spawn,
         metrics_port=lambda: 20400,
         probe=health,
         check_every=0.01,
+        follow_every=0.005,
         clock=clock,
+        command_of=machine.command_of,
+        signal=machine.signal,
     )
+
+
+@pytest.fixture
+def manager(make_manager: Callable[[], TunnelManager]) -> TunnelManager:
+    return make_manager()
 
 
 def wait_for(check: Any, timeout: float = 3) -> None:
@@ -231,33 +259,6 @@ def test_a_silent_health_endpoint_falls_back_to_the_url_banner(
     assert len(health.ports) >= tunnels.SILENT_CHECKS
 
 
-def test_ready_connections_reads_cloudflareds_count_from_200_and_503_answers() -> None:
-    answers = [(503, 0), (200, 2)]
-
-    class Ready(BaseHTTPRequestHandler):
-        def do_GET(self) -> None:
-            code, count = answers.pop(0)
-            body = json.dumps({"status": code, "readyConnections": count, "connectorId": "x"}).encode()
-            self.send_response(code)
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
-
-        def log_message(self, format: str, *args: Any) -> None:
-            pass
-
-    srv = HTTPServer(("127.0.0.1", 0), Ready)
-    threading.Thread(target=srv.serve_forever, daemon=True).start()
-    port = srv.server_address[1]
-    try:
-        assert tunnels.ready_connections(port) == 0
-        assert tunnels.ready_connections(port) == 2
-    finally:
-        srv.shutdown()
-        srv.server_close()
-    assert tunnels.ready_connections(port) is None
-
-
 def test_a_tunnel_that_dies_before_announcing_a_url_is_failed_with_its_last_line(
     manager: TunnelManager, spawned: list[FakeProcess]
 ) -> None:
@@ -269,14 +270,123 @@ def test_a_tunnel_that_dies_before_announcing_a_url_is_failed_with_its_last_line
     assert "connection refused" in (manager.status(row.id).error or "")
 
 
-def test_rows_persist_but_processes_do_not(tmp_path: Path, manager: TunnelManager) -> None:
+def test_rows_persist_with_whether_they_are_on_and_the_process_that_serves_them(
+    tmp_path: Path, manager: TunnelManager, spawned: list[FakeProcess]
+) -> None:
     row = manager.add("http://localhost:3000", label="web")
     manager.start(row.id)
     saved = json.loads((tmp_path / "state" / "tunnels.json").read_text())
-    assert [r["target"] for r in saved] == ["http://localhost:3000"] and "process" not in saved[0]
-    again = TunnelManager(tmp_path / "state" / "tunnels.json", spawn=lambda args: FakeProcess(args))
-    assert [(r.target, r.label) for r in again.rows()] == [("http://localhost:3000", "web")]
-    assert again.status(row.id).state == "stopped"
+    assert [r["target"] for r in saved] == ["http://localhost:3000"]
+    assert saved[0]["on"] is True
+    assert (saved[0]["run"]["pid"], saved[0]["run"]["metrics_port"]) == (spawned[0].pid, 20400)
+    again = TunnelManager(tmp_path / "state" / "tunnels.json")
+    assert [(r.target, r.label, r.on) for r in again.rows()] == [("http://localhost:3000", "web", True)]
+
+    manager.stop(row.id)
+    saved = json.loads((tmp_path / "state" / "tunnels.json").read_text())
+    assert (saved[0]["on"], saved[0]["run"]) == (False, None)
+
+
+def running_tunnel(manager: TunnelManager, spawned: list[FakeProcess], health: FakeHealth) -> str:
+    """Add and start a tunnel and wait until Cloudflare holds its connection; returns its id."""
+    row = manager.add("http://localhost:3333", label="finance")
+    manager.start(row.id)
+    health.count = 1
+    spawned[-1].emit(URL_LINE)
+    wait_for(lambda: manager.status(row.id).state == "running")
+    return row.id
+
+
+def test_a_tunnel_outlives_the_dashboard_and_the_next_one_picks_it_up_with_the_same_url(
+    make_manager: Callable[[], TunnelManager],
+    spawned: list[FakeProcess],
+    health: FakeHealth,
+    machine: FakeMachine,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    started = datetime(2026, 11, 25, 9, 0, tzinfo=MANILA)
+    monkeypatch.setattr(tunnels, "now", lambda: started)
+    first = make_manager()
+    tunnel_id = running_tunnel(first, spawned, health)
+    first.close()
+    assert spawned[0].poll() is None, "closing the dashboard does not stop the tunnel"
+
+    monkeypatch.setattr(tunnels, "now", lambda: started + timedelta(hours=2))
+    second = make_manager()
+    second.resume()
+    wait_for(lambda: second.status(tunnel_id).state == "running")
+    status = second.status(tunnel_id)
+    assert status.public_url == "https://brave-lamp-quick-tunnel.trycloudflare.com"
+    assert status.since == started, "it has been up since before this dashboard started"
+    assert len(spawned) == 1, "no second cloudflared was started"
+
+    second.stop(tunnel_id)
+    assert machine.signals == [(spawned[0].pid, signal.SIGTERM)]
+    assert second.status(tunnel_id).state == "stopped"
+
+
+def test_a_tunnel_that_was_on_starts_again_after_a_reboot_with_a_new_url(
+    make_manager: Callable[[], TunnelManager],
+    spawned: list[FakeProcess],
+    health: FakeHealth,
+    machine: FakeMachine,
+) -> None:
+    first = make_manager()
+    tunnel_id = running_tunnel(first, spawned, health)
+    first.close()
+    machine.commands.clear()  # the Mac restarted: no process survived
+
+    second = make_manager()
+    second.resume()
+    assert len(spawned) == 2
+    spawned[1].emit(NEW_URL_LINE)
+    wait_for(lambda: second.status(tunnel_id).state == "running")
+    assert second.status(tunnel_id).public_url == "https://calm-river-quick-tunnel.trycloudflare.com"
+
+
+def test_a_tunnel_that_was_stopped_stays_off_when_the_dashboard_starts(
+    make_manager: Callable[[], TunnelManager], spawned: list[FakeProcess], health: FakeHealth
+) -> None:
+    first = make_manager()
+    tunnel_id = running_tunnel(first, spawned, health)
+    first.stop(tunnel_id)
+    second = make_manager()
+    second.resume()
+    assert len(spawned) == 1 and second.status(tunnel_id).state == "stopped"
+
+
+def test_a_reused_pid_is_not_taken_for_the_tunnel_and_is_never_signalled(
+    make_manager: Callable[[], TunnelManager],
+    spawned: list[FakeProcess],
+    health: FakeHealth,
+    machine: FakeMachine,
+) -> None:
+    first = make_manager()
+    running_tunnel(first, spawned, health)
+    first.close()
+    machine.commands[spawned[0].pid] = "/usr/bin/vim notes.txt"  # cloudflared died and its pid was reused
+
+    second = make_manager()
+    second.resume()
+    assert len(spawned) == 2, "the tunnel was started again, not adopted"
+    second.stop_all()
+    assert machine.signals == [] and spawned[1].terminated
+
+
+def test_a_manager_that_never_ran_the_tunnels_can_still_stop_them(
+    make_manager: Callable[[], TunnelManager],
+    spawned: list[FakeProcess],
+    health: FakeHealth,
+    machine: FakeMachine,
+) -> None:
+    first = make_manager()
+    running_tunnel(first, spawned, health)
+    first.close()
+    outside = make_manager()  # `shed cron uninstall` runs outside the dashboard
+    assert [row.label for row in outside.stop_all()] == ["finance"]
+    assert machine.signals == [(spawned[0].pid, signal.SIGTERM)]
+    make_manager().resume()
+    assert len(spawned) == 1, "a stopped tunnel is not started again"
 
 
 def test_remove_stops_a_running_tunnel_and_duplicates_and_bad_targets_are_refused(
@@ -319,11 +429,11 @@ def test_install_runs_brew_in_the_background_and_reports(
         return ShResult(stdout="", stderr="", code=0)
 
     monkeypatch.setattr(tunnels, "sh", brew)
-    manager = TunnelManager(tmp_path / "tunnels.json", spawn=lambda args: FakeProcess(args))
+    manager = TunnelManager(tmp_path / "tunnels.json", spawn=FakeProcess)
     assert manager.installed() is False and manager.install_state() == "missing"
     manager.install()
     wait_for(lambda: manager.install_state() == "installed")
     assert calls == [("brew", "install", "cloudflared")] and manager.installed()
-    bare = TunnelManager(tmp_path / "t2.json", spawn=lambda args: FakeProcess(args), binary=lambda: None)
+    bare = TunnelManager(tmp_path / "t2.json", spawn=FakeProcess, binary=lambda: None)
     with pytest.raises(RuntimeError, match="not installed"):
         bare.start(bare.add("http://localhost:5").id)

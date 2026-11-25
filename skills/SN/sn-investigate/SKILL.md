@@ -47,6 +47,7 @@ Do the steps in order and stop early only when a step settles the question.
 
 ## Gotchas
 
+- The SLS tools need a sign-in. When one says the SLS sign-in is missing or expired, ask the user to run `shed sls-login` (a browser window opens for them to sign in), then rerun. A console CSV export through `shed sls-csv` needs none.
 - One SLS record holds many log lines. `error-trace` splits them, so its count is log lines, not records, and unrelated neighbours do not pollute the signatures.
 - Lines that mention passwords, OTPs, secrets or tokens are cut or withheld by `error-trace`. Never work around that with raw `sls-logs` output, and never print OTP digits, reference numbers or credentials.
 - Times are Manila time everywhere. Pass `--start` and `--end` as `"YYYY-MM-DD HH:MM"`.

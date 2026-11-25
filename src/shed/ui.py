@@ -769,7 +769,7 @@ def tunnels_page(
 ) -> str:
     """The Tunnels page: install state, an add form, and one row per tunnel with its public URL and status."""
     parts = [
-        "<h1>Tunnels <small>Cloudflare quick tunnels to local ports, alive while this dashboard runs</small></h1>"
+        "<h1>Tunnels <small>Cloudflare quick tunnels to local ports, on until you stop them</small></h1>"
     ]
     if notice:
         parts.append(f'<p class="error">{esc(notice)}</p>')
@@ -895,6 +895,7 @@ class UIServer(ThreadingHTTPServer):
         self.tools_dir = tools_dir
         self.store = RunStore(state_dir / "runs")
         self.tunnels = tunnels or TunnelManager(state_dir / "tunnels.json")
+        self.tunnels.resume()  # the tunnels that were on: still running, or started again after a reboot
         self.tunnel_notice: str | None = None
         self.lock_file = state_dir / "cron.lock"
         self.log_file = state_dir / "cron.log"
@@ -964,7 +965,7 @@ class UIServer(ThreadingHTTPServer):
 
     def stop(self) -> None:
         self._stop.set()
-        self.tunnels.stop_all()
+        self.tunnels.close()  # tunnels keep running; the next dashboard picks them up
         self.shutdown()
         self.server_close()
 

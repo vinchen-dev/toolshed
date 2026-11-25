@@ -5,7 +5,7 @@ from typing import Any
 
 import pytest
 
-from shed import ShResult, update
+from shed import ShResult, ToolError, update
 from shed.cli import main
 from shed.registry import SHED_ROOT
 
@@ -32,12 +32,31 @@ class Recorder:
         return [" ".join([cmd, *args]) for cmd, args, _ in self.calls]
 
 
+def no_global_shed() -> Path:
+    raise ToolError("the global `shed` is not on PATH")
+
+
 @pytest.fixture
 def recorder(monkeypatch: pytest.MonkeyPatch) -> Recorder:
+    """Record every command instead of running it, on a machine with no global shed installed."""
     rec = Recorder()
     monkeypatch.setattr(update, "sh", rec)
     monkeypatch.setattr(update, "which", lambda name: f"/usr/local/bin/{name}")
+    monkeypatch.setattr(update, "shed_executable", no_global_shed)
     return rec
+
+
+def global_shed(root: Path, *, playwright: bool) -> Path:
+    """A global shed as uv installs it: a shim on PATH that links into the tool's own environment."""
+    env_bin = root / "uv-tools" / "tool-shed" / "bin"
+    env_bin.mkdir(parents=True)
+    (env_bin / "shed").write_text("#!/bin/sh\n")
+    if playwright:
+        (env_bin / "playwright").write_text("#!/bin/sh\n")
+    shim = root / "local-bin" / "shed"
+    shim.parent.mkdir()
+    shim.symlink_to(env_bin / "shed")
+    return shim
 
 
 def test_update_reinstalls_links_skills_and_registers_every_group(recorder: Recorder, tmp_path: Path) -> None:
@@ -79,6 +98,52 @@ def test_update_reinstalls_links_skills_and_registers_every_group(recorder: Reco
     assert said[-1] == "Next: run `shed start` so the dashboard and scheduler load the new code."
 
 
+def run_with_browser(tmp_path: Path) -> list[str]:
+    said: list[str] = []
+    update.run_update(
+        tools_dir=tools_tree(tmp_path, "core"),
+        skills_dir=tmp_path / "skills",
+        skills_target=tmp_path / "s",
+        browser=True,
+        out=said.append,
+    )
+    return said
+
+
+def test_update_installs_chromium_for_the_global_shed_with_its_own_playwright(
+    recorder: Recorder, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    shim = global_shed(tmp_path, playwright=True)
+    monkeypatch.setattr(update, "shed_executable", lambda: shim)
+    said = run_with_browser(tmp_path)
+    own_playwright = (tmp_path / "uv-tools" / "tool-shed" / "bin" / "playwright").resolve()
+    lines = recorder.lines()
+    assert f"{own_playwright} install chromium" in lines
+    assert lines.index(f"{own_playwright} install chromium") > lines.index(
+        f"uv tool install --editable {SHED_ROOT} --reinstall"
+    )
+    assert "install Chromium for the global shed: ok" in said
+
+
+def test_update_says_so_when_there_is_no_global_shed_to_install_chromium_for(
+    recorder: Recorder, tmp_path: Path
+) -> None:
+    said = run_with_browser(tmp_path)
+    assert any("install Chromium for the global shed: skipped" in line for line in said)
+    assert [line for line in recorder.lines() if "install chromium" in line] == [
+        "uv run playwright install chromium"
+    ]
+
+
+def test_update_skips_the_global_chromium_when_that_shed_has_no_playwright(
+    recorder: Recorder, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    shim = global_shed(tmp_path, playwright=False)
+    monkeypatch.setattr(update, "shed_executable", lambda: shim)
+    said = run_with_browser(tmp_path)
+    assert any("install Chromium for the global shed: skipped" in line for line in said)
+
+
 def test_update_skips_claude_registration_when_the_cli_is_missing(
     recorder: Recorder, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -94,7 +159,8 @@ def test_update_skips_claude_registration_when_the_cli_is_missing(
     )
     assert not any(cmd == "claude" for cmd, _, _ in recorder.calls)
     assert "codex mcp add tool-shed -- shed mcp --group core" in recorder.lines()
-    assert "uv run playwright install chromium" not in recorder.lines()
+    assert not any("install chromium" in line for line in recorder.lines())
+    assert not any("Chromium" in line for line in said)
     assert any("claude" in line and "not found" in line for line in said)
 
 
@@ -159,6 +225,7 @@ def test_dry_run_prints_the_plan_without_running_anything(
     assert "uv tool install --editable" in out
     assert "claude mcp add --scope user tool-shed -- shed mcp --group core" in out
     assert "codex mcp add tool-shed -- shed mcp --group core" in out
+    assert "would install Chromium for the global shed with its own Playwright" in out
     assert recorder.calls == []
 
 

@@ -1,6 +1,6 @@
 """Turn an error message or trace id into a timeline from SLS: when, how often, where, and which code.
 
-The lines are pulled through the sls-logs tool (credentials in ~/.config/aliyun-sls.env). They are grouped
+The lines are pulled through the sls-logs tool (sign in first with `shed sls-login`). They are grouped
 into signatures (the matching line with ids and numbers masked), counted per hour and per container, and
 scanned for stack frames so the investigation can go straight from the log to a file and line.
 """

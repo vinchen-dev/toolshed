@@ -1,6 +1,6 @@
 """Summarise BDO session hangs and relogin outages from SLS logs (QAT, PROD or both).
 
-Pulls through the sls-logs tool, so credentials come from the same ~/.config/aliyun-sls.env.
+Pulls through the sls-logs tool, so it uses the same sign-in (`shed sls-login`).
 The result holds parsed fields only, never raw log text, so credentials and OTPs cannot leak.
 """
 
@@ -18,7 +18,6 @@ from pydantic import BaseModel, Field, field_validator
 
 from shed import Tool, ToolContext, ToolError
 from shed.lib import manila
-from shed.lib.env import require_env
 from shed.registry import load_tool, load_tool_module
 
 from .incidents import (
@@ -205,9 +204,8 @@ def fetch_logs(env: Env, start: datetime, ctx: ToolContext) -> str:
 
 
 def check_credentials() -> None:
-    """Fail fast with sls-logs' own message, so a missing key is not retried per environment."""
-    sls = load_tool_module("sls-logs")
-    require_env("ALIBABA_CLOUD_ACCESS_KEY_ID", "ALIBABA_CLOUD_ACCESS_KEY_SECRET", env_file=sls.ENV_FILE)
+    """Fail fast with sls-logs' own message, so a missing sign-in is not retried per environment."""
+    load_tool_module("sls-logs").credentials()
 
 
 def _pull(env: Env, start: datetime, ctx: ToolContext) -> str:
