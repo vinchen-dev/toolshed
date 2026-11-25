@@ -6,6 +6,24 @@ in its `TOOL` definition; bump it here when its inputs or result shape change.
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-11-25
+
+### Added
+- `agent-watch` (core): one snapshot of every Claude Code and Codex session on the machine with its subagents and
+  background commands, the model each runs on, and a state checked against evidence (transcript writes, output
+  files, CPU, listening ports), so a session that says it is busy but has stalled is flagged, one waiting on you
+  reads `needs-input`, and one whose process died mid-turn reads `gone`. Sessions that ended stay listed for a
+  day. Ships a dashboard page, Agents, for jobs that run it. Read-only. `--tail` adds the last lines of a
+  background command's output to the result and the text output, with lines that set or send a credential
+  withheld.
+- `agent-status` skill (core): when to run `agent-watch` and how to report stalled and waiting sessions.
+
+### Changed
+- The Claude Code transcript reader moved from `session-stats` into `src/shed/lib/transcripts.py`, so that a `core`
+  tool can use it. `session-stats` and `transcript-digest` take the same inputs and return the same results. The
+  reader can now read only the tail of a transcript, and also reports turn ends, each reply's stop reason and
+  model, background task ids, task notifications and the session title.
+
 ## [0.6.0] - 2026-11-11
 
 ### Added

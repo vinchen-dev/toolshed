@@ -116,7 +116,7 @@ Current groups:
 
 | Group | Tools | Where |
 |---|---|---|
-| `core` | api-call, git-context, log-watch, branch-diff, version-stamp, npm-deps-check | every project, every device |
+| `core` | api-call, git-context, log-watch, branch-diff, version-stamp, npm-deps-check, agent-watch | every project, every device |
 | `core/database` | mongo-query, mongo-index-diff, redis-get | any machine with a database profile in `~/.config/mongo.toml` or `~/.config/redis.toml` |
 | `agent` | session-stats, transcript-digest, graph-query, vault-recall | any machine with Claude Code transcripts, a graphify graph or the Obsidian vault |
 | `SN` | sls-logs, sls-csv, deployed-version, error-trace, meegle-search, meegle-item | the work machine |
@@ -227,11 +227,33 @@ Each run is a JSON file under `~/.local/state/shed/runs/<job>/` holding the rend
 
 `shed start` and `shed cron install` write the agent to `~/Library/LaunchAgents`. If that folder is not writable (an installer may have left it owned by root), the agent is registered from `~/.local/state/shed/` instead and runs until the next reboot; `sudo chown $(whoami) ~/Library/LaunchAgents && shed start` makes it permanent. Re-registering waits for the old agent to exit and retries the bootstrap, because launchd refuses a new agent with "Bootstrap failed: 5: Input/output error" while the old one is still shutting down.
 
-The dashboard (`src/shed/ui.py`, stdlib `http.server`, no dependencies) opens with a health strip (all healthy, or which jobs are failing, with the last run and a per-second countdown to the next) and shows one card per job with its status, last run and a run-now button. A theme button in the top bar switches between following the Mac setting, light and dark. A job's page renders the latest result as facts and tables built from the tool's JSON (nothing tool-specific), with the CLI text, the tool's log and the raw JSON one click away, plus the run history with a page per run and the job's settings. `/tools` opens with a one-line index of every tool; each tool's flags and copyable examples fold out underneath. A tool can ship `view.py` beside its `tool.py` to give its jobs a page of their own at `/view/<job>`; `bdo-incidents` does, so `/view/bdo-session` shows QAT and PROD status, the latest incident table and a timeline stitched from every kept run (window and env pickers in the header). Pages refresh themselves every 30 s, every 3 s while a run is in progress. It binds to localhost only and has no authentication; never expose it on another interface by itself.
+The dashboard (`src/shed/ui.py`, stdlib `http.server`, no dependencies) opens with a health strip (all healthy, or which jobs are failing, with the last run and a per-second countdown to the next) and shows one card per job with its status, last run and a run-now button. A theme button in the top bar switches between following the Mac setting, light and dark. A job's page renders the latest result as facts and tables built from the tool's JSON (nothing tool-specific), with the CLI text, the tool's log and the raw JSON one click away, plus the run history with a page per run and the job's settings. `/tools` opens with a one-line index of every tool; each tool's flags and copyable examples fold out underneath. A tool can ship `view.py` beside its `tool.py` to give its jobs a page of their own at `/view/<job>`; `agent-watch` and `bdo-incidents` do; `/view/bdo-session` shows QAT and PROD status, the latest incident table and a timeline stitched from every kept run (window and env pickers in the header). Pages refresh themselves every 30 s, every 3 s while a run is in progress. It binds to localhost only and has no authentication; never expose it on another interface by itself.
 
 `/tunnels` is the exception you choose on purpose: a table of Cloudflare quick tunnels. Add a local URL (`http://localhost:8000`), press Add and start, and a `cloudflared tunnel --url ...` process starts under the dashboard; the row shows its state (starting, running since, unreachable since, stopped, failed with cloudflared's last line), the public `https://*.trycloudflare.com` address with a one-click copy button, and stop/remove. Each cloudflared also gets a local metrics port, and the dashboard asks its `/ready` endpoint every 3 seconds how many connections to Cloudflare it holds: running means at least one, unreachable means the process is alive but Cloudflare dropped it (the URL does not work until it reconnects; the row then says how long the Mac slept since the tunnel was last connected and shows cloudflared's latest error, and offers a restart, which makes a new URL), and starting covers the few seconds between the URL banner and the first connection. Rows persist in `~/.local/state/shed/tunnels.json`; the processes end when the dashboard stops or restarts. If `cloudflared` is missing the page offers to install it with Homebrew (`shed update` does the same). A tunnel to the dashboard's own port is flagged on the row because it would expose this unauthenticated UI to anyone with the link. The JSON API (`/api/jobs`, `/api/jobs/<job>/latest`, `/api/jobs/<job>/runs`) serves the same data. So do the MCP tools `jobs-status`, `job-runs`, `job-result` and `job-run` for agents connected through `shed mcp` (`claude mcp add --scope user tool-shed -- shed mcp --group core`; add `--group jobs` wherever the job tools are wanted).
 
 Override the file locations with `SHED_CRON_FILE` and `SHED_STATE_DIR` (the tests do).
+
+### Watching agent sessions
+
+`agent-watch` answers "what are my agents doing, and is anything stuck". One run is one snapshot of the machine: every live Claude Code and Codex session, the subagents and background commands each started, the model each runs on, and the sessions that ended in the last day. A session's "busy" is treated as a claim and checked against evidence (new transcript records, a command's output file, CPU, listening ports), so a session with no sign of progress for five minutes is `stalled`, one waiting for an answer or an approval is `needs-input`, a background command holding a port is `serving`, and a session whose process died mid-turn is `gone`. It only reads; it never stops or signals anything.
+
+```sh
+shed agent-watch                                   # the tree as text: what needs attention first
+shed agent-watch --state stalled --state needs-input --state gone --json
+shed agent-watch --project ~/Desktop/Projects/tool-shed --stall-after 2m
+shed agent-watch --session tool-shed-5f --tail 20  # one session, with its commands' last output lines
+```
+
+Scheduled every minute it feeds the Agents page of the dashboard (`/view/<job>`, linked from the nav): what needs attention with how long it has been in that state, every session as a tree, the state changes across the kept runs, and the sessions that ended. `keep = 1440` is one day of snapshots.
+
+```toml
+[jobs.agents]
+tool = "agent-watch"
+every = "1m"
+keep = 1440                                     # one day of one-minute snapshots
+```
+
+The result and the page carry prompt and command text, cut to `--max-chars`. Command output is left out unless `--tail` asks for it; the lines are then in the result and listed under each command in the text output, and any line that sets or sends a credential (a name containing `pass`, `pwd`, `secret`, `token`, `credential` or `key` followed by `:` or `=`, an Authorization or Bearer header, `user:pass@` in a URL, a private-key header, a well-known key prefix) is withheld. The rule leans toward withholding, so a harmless line such as `max_tokens: 4096` is withheld too, while prose that only mentions such a word is kept; prompt and command text is cut to length but not scanned. Anyone who can open the dashboard can read that text, so the warning about tunnelling the dashboard applies here too. The files it reads are internal to the two CLIs and can change with any release; a source that is missing or unreadable becomes a note on the result instead of a failure. `--dir`, `--sessions-dir`, `--tasks-dir` and `--codex-dir` point it at other folders (the tests do).
 
 ## Adding a skill
 

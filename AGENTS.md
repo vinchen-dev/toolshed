@@ -5,6 +5,15 @@ Design decisions and their reasons: `docs/DESIGN.md`. Usage and conventions: `RE
 
 ## Commands
 
+- test: `uv run pytest`
+- test-one: `uv run pytest <file>`
+- lint: `uv run ruff check .`
+- typecheck: `uv run pyright`
+- build: none
+- e2e: none
+- format: `uv run ruff format .`
+- format-one: `uv run ruff format <file>`
+
 - `uv run pytest` tests, `uv run pyright` types, `uv run ruff check . && uv run ruff format .` lint/format. All three must pass before staging.
 - `uv run shed <args>` runs the CLI from this folder (`shed` once installed with `uv tool install --editable .`).
 - `uv run shed new [<group>/]<kebab-name>` scaffolds `tools/<group>/<name>/` from `tools/_template/`. Group folders (`core`, `core/database`, `SN`, `SN/lark`, `SN/autorunner`, `agent`, `research`) are what `shed mcp --group` serves; a tool name must be unique across the tree.
@@ -21,7 +30,7 @@ Design decisions and their reasons: `docs/DESIGN.md`. Usage and conventions: `RE
 3. Every `Input` field gets a `description`. Allowed types: str, int, float, bool, Literal of str, str Enum, lists of those, optionally `| None`.
 4. `run(params, ctx)` returns data (pydantic models are ideal). It never prints; progress goes through `ctx.log()`.
 5. Add or update `test_tool.py` beside it, loading the tool with `shed.registry.load_tool`.
-6. Optional: `view.py` with `TITLE` and `view(job, runs, now, query) -> str` (HTML body) gives every job of that tool its own dashboard page at `/view/<job>`, linked from the nav. `bdo-incidents` has one.
+6. Optional: `view.py` with `TITLE` and `view(job, runs, now, query) -> str` (HTML body) gives every job of that tool its own dashboard page at `/view/<job>`, linked from the nav. `agent-watch` and `bdo-incidents` have one.
 
 ## Adding or changing a skill
 
@@ -46,3 +55,13 @@ Design decisions and their reasons: `docs/DESIGN.md`. Usage and conventions: `RE
 - Judgment about when to run which tool and how to report lives in `skills/<group>/<name>/SKILL.md`; read the matching one before using a tool it covers (`shed skills` lists them). Claude Code loads them automatically once linked; other agents read the file.
 - The research tools (`product-search`, `social-search`, `browser-fetch`) are anonymous by default. Platforms that need a login are skipped unless the run has `--use-login`; never add that flag to a scheduled job, never try to sign in on the user's behalf, and when a note says "no saved session" tell the user to run `shed browser-fetch --login <site>` themselves.
 - Before pulling live data for a topic a cron job already covers, read `shed runs <job> --last` (or the `job-result` MCP tool).
+
+## Protected paths
+
+- `uv.lock` — written by uv; change dependencies with `uv add` or `uv lock`, never by hand.
+- `DESIGN.md` (repo root) — the dashboard's visual system, written by Impeccable; regenerate it there instead of editing it. `docs/DESIGN.md` is the hand-kept engineering record and is not protected.
+- `src/shed/static/inter.woff2` — the binary font the dashboard serves.
+
+## Standards
+
+Coding standards live in docs/standards.md. Read them before writing or reviewing code.

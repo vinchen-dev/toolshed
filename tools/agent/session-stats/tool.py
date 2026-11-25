@@ -12,9 +12,8 @@ from datetime import UTC, datetime
 from pydantic import BaseModel, Field
 
 from shed import Tool, ToolContext, ToolError
-
-from . import transcripts as t
-from .transcripts import Session
+from shed.lib import transcripts as t
+from shed.lib.transcripts import Session
 
 
 class Input(BaseModel):

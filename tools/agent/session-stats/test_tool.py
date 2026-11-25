@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import importlib
 import json
 import os
 import time
@@ -11,10 +10,10 @@ from typing import Any
 import pytest
 
 from shed import ToolContext, ToolError
+from shed.lib import transcripts
 from shed.registry import load_tool, load_tool_module
 
 module = load_tool_module("session-stats")
-transcripts = importlib.import_module(f"{module.__package__}.transcripts")
 TOOL = load_tool("session-stats")
 
 PROJECT = "-tmp-work-proj"

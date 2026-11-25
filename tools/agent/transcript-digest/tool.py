@@ -6,20 +6,13 @@ went wrong, in order and with Manila times. Thinking blocks are left out unless 
 
 from __future__ import annotations
 
-import importlib
 from pathlib import Path
-from types import ModuleType
 from typing import Any
 
 from pydantic import BaseModel, Field
 
 from shed import Tool, ToolContext, ToolError
-from shed.registry import load_tool_module
-
-
-def transcripts() -> ModuleType:
-    """The session-stats tool's transcript reader, shared rather than copied."""
-    return importlib.import_module(f"{load_tool_module('session-stats').__package__}.transcripts")
+from shed.lib import transcripts as t
 
 
 class Input(BaseModel):
@@ -81,7 +74,7 @@ def pick_session(root: Path, project: str, wanted: str | None) -> Path:
     folder = root / project
     if not folder.is_dir():
         raise ToolError(f"no transcripts for {project} under {root}")
-    files = transcripts().session_files(root, [project])
+    files = t.session_files(root, [project])
     if not files:
         raise ToolError(f"no sessions under {folder}")
     if not wanted:
@@ -98,14 +91,13 @@ def _paths(value: Any) -> list[str]:
     """File paths named by a tool input: the usual path keys, plus the edits list of a multi-edit."""
     if not isinstance(value, dict):
         return []
-    found = [str(value[k]) for k in transcripts().PATH_KEYS if isinstance(value.get(k), str) and value[k]]
+    found = [str(value[k]) for k in t.PATH_KEYS if isinstance(value.get(k), str) and value[k]]
     for edit in value.get("edits") or []:
         found.extend(_paths(edit))
     return found
 
 
-def build(session: Any, params: Input) -> Digest:
-    t = transcripts()
+def build(session: t.Session, params: Input) -> Digest:
     cut = params.max_chars
     names = t.tool_names_by_id(session)
     files: list[str] = []
@@ -157,7 +149,6 @@ def build(session: Any, params: Input) -> Digest:
 
 
 def run(params: Input, ctx: ToolContext) -> Digest:
-    t = transcripts()
     root = t.projects_root(params.dir, ctx.cwd)
     project = t.resolve_project(params.project, ctx.cwd, root)
     path = pick_session(root, project, params.session)

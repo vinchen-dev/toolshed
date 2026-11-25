@@ -120,7 +120,8 @@ def test_mcp_groups_command_lists_the_repo_folders() -> None:
     listed = _shed("mcp", "groups")
     assert listed.returncode == 0, listed.stderr
     lines = listed.stdout.splitlines()  # only core and jobs exist on every device
-    assert "core: api-call, branch-diff, git-context, log-watch, npm-deps-check, version-stamp" in lines
+    core = "core: agent-watch, api-call, branch-diff, git-context, log-watch, npm-deps-check, version-stamp"
+    assert core in lines
     assert "jobs: jobs-status, job-runs, job-result, job-run" in lines
     assert all(": " in line for line in lines)
     bad = _shed("mcp", "--group", "nope")
@@ -142,6 +143,7 @@ async def test_group_flags_limit_the_served_tools() -> None:
         await s.initialize()
         names = [t.name for t in (await s.list_tools()).tools]
         assert names == [
+            "agent-watch",
             "api-call",
             "branch-diff",
             "git-context",
